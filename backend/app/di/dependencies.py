@@ -1,21 +1,26 @@
 from typing import Generator
+
+from fastapi import Depends
 from sqlalchemy.orm import Session
+
 from app.di.container import DIContainer
+from app.repository.job_repository import JobRepository
+from app.repository.proposal_repository import ProposalRepository
+from app.repository.setting_repository import SettingRepository
 
 
-# DB接続を行うジェネレータ関数
 def get_db() -> Generator[Session, None, None]:
     """データベースセッションを取得"""
     yield from DIContainer.get_db()
 
 
-# Repository層の依存性注入
-# 例:
-# def get_user_repository(db: Session = Depends(get_db)) -> IUserRepository:
-#     return DIContainer.get_user_repository(db)
+def get_job_repository(db: Session = Depends(get_db)) -> JobRepository:
+    return DIContainer.get_job_repository(db)
 
 
-# UseCase層の依存性注入
-# 例:
-# def get_user_usecase(repo: IUserRepository = Depends(get_user_repository)) -> UserUseCase:
-#     return DIContainer.get_user_usecase(repo)
+def get_proposal_repository(db: Session = Depends(get_db)) -> ProposalRepository:
+    return DIContainer.get_proposal_repository(db)
+
+
+def get_setting_repository(db: Session = Depends(get_db)) -> SettingRepository:
+    return DIContainer.get_setting_repository(db)

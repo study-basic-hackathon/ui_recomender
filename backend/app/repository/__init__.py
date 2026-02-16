@@ -14,5 +14,14 @@
 #     - *_repository_sql.py: SQL実装
 
 from .database import SessionLocal, engine
+from .job_repository import JobRepository
+from .proposal_repository import ProposalRepository
+from .setting_repository import SettingRepository
 
-__all__ = ["SessionLocal", "engine"]
+__all__ = [
+    "SessionLocal",
+    "engine",
+    "JobRepository",
+    "ProposalRepository",
+    "SettingRepository",
+]

@@ -16,8 +16,8 @@ if config.config_file_name is not None:
 
 # add your model's MetaData object here
 # for 'autogenerate' support
-# モデルをインポートして自動生成を有効化
-# 例: from app.model.user import User
+from app.model.job import Job, Proposal, Setting  # noqa: F401
+
 target_metadata = Base.metadata
 
 # other values from the config, defined by the needs of env.py,

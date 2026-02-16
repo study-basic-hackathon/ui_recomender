@@ -1,6 +1,11 @@
 from typing import Generator
+
 from sqlalchemy.orm import Session
+
 from app.repository.database import SessionLocal
+from app.repository.job_repository import JobRepository
+from app.repository.proposal_repository import ProposalRepository
+from app.repository.setting_repository import SettingRepository
 
 
 class DIContainer:
@@ -15,14 +20,14 @@ class DIContainer:
         finally:
             db.close()
 
-    # Repository層のインスタンス生成
-    # 例:
-    # @staticmethod
-    # def get_user_repository(db: Session) -> IUserRepository:
-    #     return UserSQLRepository(db)
+    @staticmethod
+    def get_job_repository(db: Session) -> JobRepository:
+        return JobRepository(db)
 
-    # UseCase層のインスタンス生成
-    # 例:
-    # @staticmethod
-    # def get_user_usecase(user_repo: IUserRepository) -> UserUseCase:
-    #     return UserUseCase(user_repo)
+    @staticmethod
+    def get_proposal_repository(db: Session) -> ProposalRepository:
+        return ProposalRepository(db)
+
+    @staticmethod
+    def get_setting_repository(db: Session) -> SettingRepository:
+        return SettingRepository(db)

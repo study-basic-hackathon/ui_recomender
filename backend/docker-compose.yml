@@ -6,6 +6,8 @@ services:
     command: ["uv", "run", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
     volumes:
       - .:/app
+      - /tmp/ui-recommender-artifacts:/tmp/ui-recommender-artifacts
+      - ${HOME}/.kube:/root/.kube:ro
     ports:
       - "8000:8000"
     depends_on:

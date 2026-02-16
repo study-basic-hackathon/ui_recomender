@@ -8,4 +8,6 @@
 #     - マイグレーション（Alembic）で使用
 #     - Repository層の実装で使用
 
-__all__ = []
+from .job import Job, JobStatus, Proposal, ProposalStatus, Setting
+
+__all__ = ["Job", "JobStatus", "Proposal", "ProposalStatus", "Setting"]

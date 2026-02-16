@@ -1,0 +1,48 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ui-worker-{{ .JobID }}
+  labels:
+    app: ui-recommender
+    component: worker
+    job-id: "{{ .JobID }}"
+spec:
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        app: ui-recommender
+        component: worker
+        job-id: "{{ .JobID }}"
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: worker
+          image: ui-recommender-worker:latest
+          imagePullPolicy: Never
+          env:
+            - name: REPO_URL
+              value: "{{ .RepoURL }}"
+            - name: BRANCH
+              value: "{{ .Branch }}"
+            - name: PATCH_CONTENT
+              value: |
+                {{ .PatchContent }}
+            - name: TARGET_URL
+              value: "{{ .TargetURL }}"
+            - name: JOB_ID
+              value: "{{ .JobID }}"
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "500m"
+            limits:
+              memory: "2Gi"
+              cpu: "2000m"
+          volumeMounts:
+            - name: workspace
+              mountPath: /workspace
+      volumes:
+        - name: workspace
+          emptyDir: {}

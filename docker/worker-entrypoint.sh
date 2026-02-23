@@ -7,7 +7,7 @@ echo "Job ID: ${JOB_ID}"
 echo "Repository: ${REPO_URL}"
 
 if [ -z "$WORKER_MODE" ]; then
-  echo "Error: WORKER_MODE is required (analyze or implement)"
+  echo "Error: WORKER_MODE is required (analyze, implement, or createpr)"
   exit 1
 fi
 
@@ -17,6 +17,9 @@ case "$WORKER_MODE" in
     ;;
   implement)
     exec python /usr/local/bin/worker-implement.py
+    ;;
+  createpr)
+    exec python /usr/local/bin/worker-createpr.py
     ;;
   *)
     echo "Error: Unknown WORKER_MODE: $WORKER_MODE"

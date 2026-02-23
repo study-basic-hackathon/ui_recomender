@@ -39,3 +39,21 @@ class ImplementationState(TypedDict):
     # Output
     after_screenshot_path: str | None
     diff_content: str | None
+
+
+class CreatePRState(TypedDict):
+    """State for the PR creation workflow."""
+
+    # Input
+    job_id: str
+    repo_url: str
+    branch: str
+    proposal_index: int
+
+    # Intermediate
+    k8s_job_name: str | None
+    status: str
+    error: str | None
+
+    # Output
+    pr_url: str | None

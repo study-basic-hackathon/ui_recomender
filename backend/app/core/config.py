@@ -1,18 +1,18 @@
 import enum
-from typing import Any, Optional
+from typing import Any
 
 from pydantic import PostgresDsn, ValidationInfo, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
-class AppEnvironment(str, enum.Enum):
+class AppEnvironment(enum.StrEnum):
     DEVELOP = "development"
     PRODUCTION = "production"
 
 
 class Settings(BaseSettings):
     # 明示的に環境変数を読み込む（Pydantic_v2以降）
-    model_config = SettingsConfigDict(env_file='.env', env_file_encoding='utf-8')
+    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
     ENVIRONMENT: AppEnvironment
 
@@ -25,7 +25,7 @@ class Settings(BaseSettings):
     POSTGRES_PASSWORD: str
     POSTGRES_DB: str
     POSTGRES_PORT: str
-    SQLALCHEMY_DATABASE_URI: Optional[str] = None
+    SQLALCHEMY_DATABASE_URI: str | None = None
 
     # Kubernetes設定
     K8S_NAMESPACE: str = "default"
@@ -46,7 +46,7 @@ class Settings(BaseSettings):
     ANTHROPIC_API_KEY: str = ""
 
     @field_validator("SQLALCHEMY_DATABASE_URI", mode="after")
-    def assemble_db_connection(cls, v: Optional[str], values: ValidationInfo) -> Any:
+    def assemble_db_connection(cls, v: str | None, values: ValidationInfo) -> Any:
         if isinstance(v, str):
             return v
 
@@ -56,7 +56,7 @@ class Settings(BaseSettings):
                 username=values.data.get("POSTGRES_USER"),
                 password=values.data.get("POSTGRES_PASSWORD"),
                 host=values.data.get("POSTGRES_SERVER"),
-                port=int(values.data.get("POSTGRES_PORT")),
+                port=int(values.data.get("POSTGRES_PORT", "5432")),
                 path=f"{values.data.get('POSTGRES_DB') or ''}",
             )
         )

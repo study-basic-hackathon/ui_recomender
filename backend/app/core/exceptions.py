@@ -12,9 +12,7 @@ class ProposalNotFoundError(Exception):
     def __init__(self, job_id: str, proposal_index: int) -> None:
         self.job_id = job_id
         self.proposal_index = proposal_index
-        super().__init__(
-            f"Proposal not found: job={job_id}, index={proposal_index}"
-        )
+        super().__init__(f"Proposal not found: job={job_id}, index={proposal_index}")
 
 
 class K8sServiceError(Exception):
@@ -36,6 +34,4 @@ class InvalidJobStateError(Exception):
         self.job_id = job_id
         self.current_state = current_state
         self.expected_state = expected_state
-        super().__init__(
-            f"Job {job_id} is in state '{current_state}', expected '{expected_state}'"
-        )
+        super().__init__(f"Job {job_id} is in state '{current_state}', expected '{expected_state}'")

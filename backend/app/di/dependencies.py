@@ -1,4 +1,4 @@
-from typing import Generator
+from collections.abc import Generator
 
 from fastapi import Depends
 from sqlalchemy.orm import Session
@@ -9,7 +9,7 @@ from app.repository.proposal_repository import ProposalRepository
 from app.repository.setting_repository import SettingRepository
 
 
-def get_db() -> Generator[Session, None, None]:
+def get_db() -> Generator[Session]:
     """データベースセッションを取得"""
     yield from DIContainer.get_db()
 

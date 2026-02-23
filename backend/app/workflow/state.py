@@ -1,4 +1,4 @@
-from typing import Optional, TypedDict
+from typing import TypedDict
 
 
 class AnalyzerState(TypedDict):
@@ -12,13 +12,13 @@ class AnalyzerState(TypedDict):
     num_proposals: int
 
     # Intermediate
-    k8s_job_name: Optional[str]
+    k8s_job_name: str | None
     status: str  # pending, running, succeeded, failed, timeout
-    error: Optional[str]
+    error: str | None
 
     # Output
-    proposals: Optional[list[dict]]
-    before_screenshot_path: Optional[str]
+    proposals: list[dict] | None
+    before_screenshot_path: str | None
 
 
 class ImplementationState(TypedDict):
@@ -32,10 +32,10 @@ class ImplementationState(TypedDict):
     proposal_plan: str
 
     # Intermediate
-    k8s_job_name: Optional[str]
+    k8s_job_name: str | None
     status: str
-    error: Optional[str]
+    error: str | None
 
     # Output
-    after_screenshot_path: Optional[str]
-    diff_content: Optional[str]
+    after_screenshot_path: str | None
+    diff_content: str | None

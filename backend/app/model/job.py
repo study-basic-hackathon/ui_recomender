@@ -1,6 +1,6 @@
 import enum
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlalchemy import Column, DateTime, Enum, ForeignKey, Integer, String, Text, Uuid
 from sqlalchemy.orm import relationship
@@ -8,7 +8,7 @@ from sqlalchemy.orm import relationship
 from app.model.base import Base
 
 
-class JobStatus(str, enum.Enum):
+class JobStatus(enum.StrEnum):
     PENDING = "pending"
     ANALYZING = "analyzing"
     ANALYZED = "analyzed"
@@ -17,7 +17,7 @@ class JobStatus(str, enum.Enum):
     FAILED = "failed"
 
 
-class ProposalStatus(str, enum.Enum):
+class ProposalStatus(enum.StrEnum):
     PENDING = "pending"
     IMPLEMENTING = "implementing"
     COMPLETED = "completed"
@@ -25,7 +25,7 @@ class ProposalStatus(str, enum.Enum):
 
 
 def _utcnow() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 class Job(Base):
@@ -42,7 +42,7 @@ class Job(Base):
     created_at = Column(DateTime(timezone=True), default=_utcnow)
     updated_at = Column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow)
 
-    proposals = relationship(
+    proposals: list["Proposal"] = relationship(
         "Proposal", back_populates="job", cascade="all, delete-orphan"
     )
 
@@ -51,25 +51,21 @@ class Proposal(Base):
     __tablename__ = "proposals"
 
     id = Column(Uuid, primary_key=True, default=uuid.uuid4)
-    job_id = Column(
-        Uuid, ForeignKey("jobs.id", ondelete="CASCADE"), nullable=False
-    )
+    job_id = Column(Uuid, ForeignKey("jobs.id", ondelete="CASCADE"), nullable=False)
     proposal_index = Column(Integer, nullable=False)
     title = Column(String(200), nullable=False)
     concept = Column(Text, nullable=False)
     plan = Column(Text, nullable=False)  # JSON array stored as text
     files = Column(Text, nullable=True)  # JSON array stored as text
     complexity = Column(String(20), nullable=True)
-    status = Column(
-        Enum(ProposalStatus), nullable=False, default=ProposalStatus.PENDING
-    )
+    status = Column(Enum(ProposalStatus), nullable=False, default=ProposalStatus.PENDING)
     after_screenshot_path = Column(String(500), nullable=True)
     diff_path = Column(Text, nullable=True)
     k8s_job_name = Column(String(200), nullable=True)
     error_message = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), default=_utcnow)
 
-    job = relationship("Job", back_populates="proposals")
+    job: "Job" = relationship("Job", back_populates="proposals")
 
 
 class Setting(Base):

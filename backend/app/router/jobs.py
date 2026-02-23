@@ -6,8 +6,8 @@ from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from app.di.dependencies import get_db
+from app.model.job import Job, Proposal
 from app.repository.job_repository import JobRepository
-from app.repository.proposal_repository import ProposalRepository
 from app.schema.job_schema import (
     CreateJobRequest,
     ImplementRequest,
@@ -20,7 +20,7 @@ from app.usecase.job_usecase import CreateJobUseCase, ImplementProposalUseCase
 router = APIRouter(prefix="/api/jobs", tags=["jobs"])
 
 
-def _to_proposal_response(proposal, job_id: UUID) -> ProposalResponse:
+def _to_proposal_response(proposal: Proposal, job_id: UUID) -> ProposalResponse:
     """Convert Proposal model to ProposalResponse."""
     try:
         plan = json.loads(proposal.plan) if proposal.plan else []
@@ -39,7 +39,7 @@ def _to_proposal_response(proposal, job_id: UUID) -> ProposalResponse:
         plan=plan,
         files=files,
         complexity=proposal.complexity,
-        status=proposal.status.value,
+        status=proposal.status.value if proposal.status else "pending",
         after_screenshot_url=(
             f"/api/jobs/{job_id}/proposals/{proposal.proposal_index}/screenshot"
             if proposal.after_screenshot_path
@@ -50,19 +50,18 @@ def _to_proposal_response(proposal, job_id: UUID) -> ProposalResponse:
     )
 
 
-def _to_job_response(job) -> JobResponse:
+def _to_job_response(job: Job) -> JobResponse:
     """Convert Job model to JobResponse."""
-    proposals = [_to_proposal_response(p, job.id) for p in job.proposals]
+    job_id = job.id
+    proposals = [_to_proposal_response(p, job_id) for p in job.proposals]  # type: ignore[arg-type]
     return JobResponse(
-        id=job.id,
-        status=job.status.value,
+        id=job_id,
+        status=job.status.value if job.status else "pending",
         repo_url=job.repo_url,
         branch=job.branch,
         instruction=job.instruction,
         before_screenshot_url=(
-            f"/api/jobs/{job.id}/screenshot/before"
-            if job.before_screenshot_path
-            else None
+            f"/api/jobs/{job.id}/screenshot/before" if job.before_screenshot_path else None
         ),
         error_message=job.error_message,
         proposals=proposals,
@@ -72,9 +71,7 @@ def _to_job_response(job) -> JobResponse:
 
 
 @router.post("/", response_model=JobResponse, status_code=201)
-async def create_job(
-    request: CreateJobRequest, db: Session = Depends(get_db)
-) -> JobResponse:
+async def create_job(request: CreateJobRequest, db: Session = Depends(get_db)) -> JobResponse:
     usecase = CreateJobUseCase(db)
     job = await usecase.execute(
         repo_url=request.repo_url,
@@ -108,7 +105,7 @@ async def implement_proposals(
     try:
         job = await usecase.execute(job_id, request.proposal_indices)
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e)) from e
     return _to_job_response(job)
 
 
@@ -122,9 +119,7 @@ async def get_before_screenshot(job_id: UUID) -> FileResponse:
 
 
 @router.get("/{job_id}/proposals/{proposal_index}/screenshot")
-async def get_after_screenshot(
-    job_id: UUID, proposal_index: int
-) -> FileResponse:
+async def get_after_screenshot(job_id: UUID, proposal_index: int) -> FileResponse:
     artifacts = ArtifactService()
     path = artifacts.get_after_screenshot_path(str(job_id), proposal_index)
     if not path:

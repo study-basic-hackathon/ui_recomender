@@ -114,16 +114,30 @@ async def main() -> None:
     print("=== Implementing design proposal ===")
     await implement_proposal(repo_dir, proposal_plan, screenshot_path)
 
-    # Step 4: Save the diff
+    # Step 4: Commit all changes and generate patch
     print("=== Saving changes diff ===")
-    os.chdir(repo_dir)
-    diff_result = subprocess.run(
-        ["git", "diff"],
-        capture_output=True,
-        text=True,
+    # Parse proposal plan to get title for commit message
+    try:
+        plan_data = json.loads(proposal_plan)
+        commit_title = plan_data.get("title", f"variant-{proposal_index}")
+    except (json.JSONDecodeError, AttributeError):
+        commit_title = f"variant-{proposal_index}"
+
+    # Stage all changes (new, modified, deleted files)
+    subprocess.run(["git", "add", "-A"], cwd=repo_dir, check=True)
+    # Commit with proposal title as message
+    subprocess.run(
+        ["git", "commit", "-m", f"feat: {commit_title}"],
+        cwd=repo_dir,
+        check=True,
+    )
+    # Generate patch using format-patch (stable, portable format)
+    patch_result = subprocess.run(
+        ["git", "format-patch", "-1", "HEAD", "--stdout"],
+        capture_output=True, text=True, cwd=repo_dir,
     )
     with open(f"{artifact_dir}/changes.diff", "w") as f:
-        f.write(diff_result.stdout)
+        f.write(patch_result.stdout)
 
     # Output artifacts to stdout with markers so Backend can extract from pod logs
     import base64

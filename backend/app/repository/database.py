@@ -1,19 +1,30 @@
-from app.core.config import settings
-from sqlalchemy import create_engine
-from sqlalchemy.orm import scoped_session, sessionmaker
+import logging
+from functools import lru_cache
 
-# データベース接続設定
-if settings.SQLALCHEMY_DATABASE_URI:
-    engine = create_engine(
-        settings.SQLALCHEMY_DATABASE_URI,
-        pool_pre_ping=True,
-    )
-    SessionLocal = scoped_session(
-        sessionmaker(autocommit=False, autoflush=False, bind=engine)
-    )
+from sqlalchemy import Engine, create_engine
+from sqlalchemy.orm import Session, sessionmaker
+
+from app.core.config import get_settings
+
+logger = logging.getLogger(__name__)
+
+
+@lru_cache
+def get_engine() -> Engine:
+    settings = get_settings()
+    uri = settings.SQLALCHEMY_DATABASE_URI
+    if not uri:
+        raise ValueError("SQLALCHEMY_DATABASE_URI is not set")
+
+    engine = create_engine(uri, pool_pre_ping=True)
 
     if settings.ENVIRONMENT == "development":
-        db_info = f"Using database at {settings.SQLALCHEMY_DATABASE_URI}"
-        print(db_info)
-else:
-    raise ValueError("SQLALCHEMY_DATABASE_URI is not set")
+        logger.info("Using database at %s", uri)
+
+    return engine
+
+
+def SessionLocal() -> Session:
+    engine = get_engine()
+    factory = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    return factory()

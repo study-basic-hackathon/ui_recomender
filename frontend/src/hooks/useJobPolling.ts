@@ -1,63 +1,62 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
-import { getJob, type Job } from '../services/api';
+import { useState, useEffect, useRef, useCallback } from 'react'
+import { getJob, type Job } from '../services/api'
 
-const TERMINAL_STATUSES = ['analyzed', 'completed', 'failed'];
+const TERMINAL_STATUSES = ['analyzed', 'completed', 'failed']
 
-export function useJobPolling(
-  jobId: string | null,
-  intervalMs: number = 3000,
-) {
-  const [job, setJob] = useState<Job | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
-  const timerRef = useRef<number | null>(null);
+export function useJobPolling(jobId: string | null, intervalMs: number = 3000) {
+  const [job, setJob] = useState<Job | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [isLoading, setIsLoading] = useState(false)
+  const timerRef = useRef<number | null>(null)
 
   const stopPolling = useCallback(() => {
     if (timerRef.current !== null) {
-      clearInterval(timerRef.current);
-      timerRef.current = null;
+      clearInterval(timerRef.current)
+      timerRef.current = null
     }
-  }, []);
+  }, [])
 
   useEffect(() => {
     if (!jobId) {
-      setJob(null);
-      return;
+      return
     }
 
-    setIsLoading(true);
-    setError(null);
-
+    let isFirstPoll = true
     const poll = async () => {
+      if (isFirstPoll) {
+        setIsLoading(true)
+        setError(null)
+        isFirstPoll = false
+      }
       try {
-        const data = await getJob(jobId);
-        setJob(data);
-        setIsLoading(false);
+        const data = await getJob(jobId)
+        setJob(data)
+        setIsLoading(false)
 
         if (TERMINAL_STATUSES.includes(data.status)) {
-          stopPolling();
+          stopPolling()
         }
       } catch (e) {
-        setError((e as Error).message);
-        setIsLoading(false);
+        setError((e as Error).message)
+        setIsLoading(false)
       }
-    };
+    }
 
-    poll();
-    timerRef.current = window.setInterval(poll, intervalMs);
+    poll()
+    timerRef.current = window.setInterval(poll, intervalMs)
 
-    return stopPolling;
-  }, [jobId, intervalMs, stopPolling]);
+    return stopPolling
+  }, [jobId, intervalMs, stopPolling])
 
   const refetch = useCallback(async () => {
-    if (!jobId) return;
+    if (!jobId) return
     try {
-      const data = await getJob(jobId);
-      setJob(data);
+      const data = await getJob(jobId)
+      setJob(data)
     } catch (e) {
-      setError((e as Error).message);
+      setError((e as Error).message)
     }
-  }, [jobId]);
+  }, [jobId])
 
-  return { job, error, isLoading, refetch };
+  return { job, error, isLoading, refetch }
 }

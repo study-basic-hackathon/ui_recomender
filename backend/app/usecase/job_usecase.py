@@ -5,7 +5,7 @@ from uuid import UUID
 
 from sqlalchemy.orm import Session
 
-from app.core.config import settings
+from app.core.config import get_settings
 from app.model.job import Job, JobStatus, Proposal, ProposalStatus
 from app.repository.database import SessionLocal
 from app.repository.job_repository import JobRepository
@@ -35,9 +35,7 @@ class CreateJobUseCase:
         job_id = str(job.id)
 
         # Run analysis in background (separate DB session)
-        asyncio.create_task(
-            self._run_analysis(job_id, repo_url, branch, instruction)
-        )
+        asyncio.create_task(self._run_analysis(job_id, repo_url, branch, instruction))
 
         return job
 
@@ -53,24 +51,26 @@ class CreateJobUseCase:
             job_repo.update_status(UUID(job_id), JobStatus.ANALYZING)
 
             graph = build_analyzer_graph()
-            result = await graph.ainvoke({
-                "job_id": job_id,
-                "repo_url": repo_url,
-                "branch": branch,
-                "instruction": instruction,
-                "num_proposals": settings.MAX_PROPOSALS,
-                "k8s_job_name": None,
-                "status": "pending",
-                "error": None,
-                "proposals": None,
-                "before_screenshot_path": None,
-            })
+            result = await graph.ainvoke(
+                {
+                    "job_id": job_id,
+                    "repo_url": repo_url,
+                    "branch": branch,
+                    "instruction": instruction,
+                    "num_proposals": get_settings().MAX_PROPOSALS,
+                    "k8s_job_name": None,
+                    "status": "pending",
+                    "error": None,
+                    "proposals": None,
+                    "before_screenshot_path": None,
+                }
+            )
 
             if result.get("proposals"):
                 proposals = []
                 for i, prop in enumerate(result["proposals"]):
                     proposal = Proposal(
-                        job_id=UUID(job_id),
+                        job_id=UUID(job_id),  # type: ignore[arg-type]
                         proposal_index=i,
                         title=prop.get("title", f"Proposal {i + 1}"),
                         concept=prop.get("concept", ""),
@@ -101,9 +101,9 @@ class CreateJobUseCase:
                             str(job_id),
                             repo_url,
                             branch,
-                            proposal.proposal_index,
+                            proposal.proposal_index or 0,
                             str(proposal.id),
-                            proposal.plan,
+                            str(proposal.plan),
                         )
                     )
                 logger.info(
@@ -113,9 +113,7 @@ class CreateJobUseCase:
                 )
             else:
                 error = result.get("error", "No proposals generated")
-                job_repo.update_status(
-                    UUID(job_id), JobStatus.FAILED, error_message=error
-                )
+                job_repo.update_status(UUID(job_id), JobStatus.FAILED, error_message=error)
                 logger.warning("Analysis failed for job %s: %s", job_id, error)
 
         except Exception:
@@ -155,16 +153,19 @@ class ImplementProposalUseCase:
                 asyncio.create_task(
                     self._run_implementation(
                         str(job_id),
-                        job.repo_url,
-                        job.branch,
+                        str(job.repo_url),
+                        str(job.branch),
                         idx,
                         str(proposal.id),
-                        proposal.plan,
+                        str(proposal.plan),
                     )
                 )
 
         # Return the updated job
-        return self.job_repo.get_by_id(job_id)
+        updated_job = self.job_repo.get_by_id(job_id)
+        if not updated_job:
+            raise ValueError("Job not found after update")
+        return updated_job
 
     async def _run_implementation(
         self,
@@ -191,34 +192,31 @@ class ImplementProposalUseCase:
         """Background task: run one implementation LangGraph workflow."""
         db = SessionLocal()
         try:
-            job_repo = JobRepository(db)
             proposal_repo = ProposalRepository(db)
 
-            proposal_repo.update_status(
-                UUID(proposal_id), ProposalStatus.IMPLEMENTING
-            )
+            proposal_repo.update_status(UUID(proposal_id), ProposalStatus.IMPLEMENTING)
 
             # Write plan to artifact dir for the worker to read
             artifacts = ArtifactService()
             artifacts.write_proposal_plan(job_id, proposal_index, plan_json)
 
             graph = build_implementation_graph()
-            result = await graph.ainvoke({
-                "job_id": job_id,
-                "repo_url": repo_url,
-                "branch": branch,
-                "proposal_index": proposal_index,
-                "proposal_plan": plan_json,
-                "k8s_job_name": None,
-                "status": "pending",
-                "error": None,
-                "after_screenshot_path": None,
-                "diff_content": None,
-            })
+            result = await graph.ainvoke(
+                {
+                    "job_id": job_id,
+                    "repo_url": repo_url,
+                    "branch": branch,
+                    "proposal_index": proposal_index,
+                    "proposal_plan": plan_json,
+                    "k8s_job_name": None,
+                    "status": "pending",
+                    "error": None,
+                    "after_screenshot_path": None,
+                    "diff_content": None,
+                }
+            )
 
-            if result.get("status") == "succeeded" or result.get(
-                "after_screenshot_path"
-            ):
+            if result.get("status") == "succeeded" or result.get("after_screenshot_path"):
                 proposal_repo.update_status(
                     UUID(proposal_id),
                     ProposalStatus.COMPLETED,
@@ -276,13 +274,10 @@ class ImplementProposalUseCase:
             return
 
         all_done = all(
-            p.status in (ProposalStatus.COMPLETED, ProposalStatus.FAILED)
-            for p in proposals
+            p.status in (ProposalStatus.COMPLETED, ProposalStatus.FAILED) for p in proposals
         )
         if all_done:
-            any_succeeded = any(
-                p.status == ProposalStatus.COMPLETED for p in proposals
-            )
+            any_succeeded = any(p.status == ProposalStatus.COMPLETED for p in proposals)
             new_status = JobStatus.COMPLETED if any_succeeded else JobStatus.FAILED
             job_repo.update_status(job_id, new_status)
             logger.info("Job %s completed with status: %s", job_id, new_status)

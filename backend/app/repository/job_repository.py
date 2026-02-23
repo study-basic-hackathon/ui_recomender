@@ -1,4 +1,3 @@
-from typing import Optional
 from uuid import UUID
 
 from sqlalchemy.orm import Session
@@ -16,12 +15,10 @@ class JobRepository:
         self.db.refresh(job)
         return job
 
-    def get_by_id(self, job_id: UUID) -> Optional[Job]:
+    def get_by_id(self, job_id: UUID) -> Job | None:
         return self.db.query(Job).filter(Job.id == job_id).first()
 
-    def update_status(
-        self, job_id: UUID, status: JobStatus, **kwargs: object
-    ) -> Optional[Job]:
+    def update_status(self, job_id: UUID, status: JobStatus, **kwargs: object) -> Job | None:
         job = self.get_by_id(job_id)
         if job:
             job.status = status

@@ -1,11 +1,10 @@
 import asyncio
 import logging
-from typing import Optional
 
 from kubernetes import client, config
 from kubernetes.client.rest import ApiException
 
-from app.core.config import settings
+from app.core.config import get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -14,6 +13,7 @@ class K8sService:
     """Kubernetes Job management service."""
 
     def __init__(self) -> None:
+        settings = get_settings()
         if settings.K8S_IN_CLUSTER:
             config.load_incluster_config()
         else:
@@ -23,14 +23,14 @@ class K8sService:
             # K8s 証明書は 127.0.0.1 向けなので SSL 検証もスキップする。
             k8s_config = client.Configuration.get_default_copy()
             if "127.0.0.1" in k8s_config.host:
-                k8s_config.host = k8s_config.host.replace(
-                    "127.0.0.1", "host.docker.internal"
-                )
+                k8s_config.host = k8s_config.host.replace("127.0.0.1", "host.docker.internal")
                 k8s_config.verify_ssl = False
                 client.Configuration.set_default(k8s_config)
         self.batch_v1 = client.BatchV1Api()
         self.core_v1 = client.CoreV1Api()
         self.namespace = settings.K8S_NAMESPACE
+        self.worker_image = settings.WORKER_IMAGE
+        self.worker_deadline_seconds = settings.WORKER_DEADLINE_SECONDS
 
     def _build_worker_container(
         self, mode: str, env_vars: list[client.V1EnvVar]
@@ -51,7 +51,7 @@ class K8sService:
         ]
         return client.V1Container(
             name="worker",
-            image=settings.WORKER_IMAGE,
+            image=self.worker_image,
             image_pull_policy="Never",
             env=base_env + env_vars,
             resources=client.V1ResourceRequirements(
@@ -98,7 +98,7 @@ class K8sService:
                 template=template,
                 backoff_limit=1,
                 ttl_seconds_after_finished=1800,
-                active_deadline_seconds=settings.WORKER_DEADLINE_SECONDS,
+                active_deadline_seconds=self.worker_deadline_seconds,
             ),
         )
 
@@ -162,9 +162,7 @@ class K8sService:
         logger.info("Created implementation K8s Job: %s", job_name)
         return job_name
 
-    async def wait_for_job(
-        self, job_name: str, timeout: int = 900, poll_interval: int = 5
-    ) -> str:
+    async def wait_for_job(self, job_name: str, timeout: int = 900, poll_interval: int = 5) -> str:
         """Poll K8s Job status until completion. Returns 'succeeded', 'failed', or 'timeout'."""
         elapsed = 0
         while elapsed < timeout:
@@ -187,7 +185,7 @@ class K8sService:
         logger.warning("K8s Job %s timed out after %ds", job_name, timeout)
         return "timeout"
 
-    def get_job_logs(self, job_name: str) -> Optional[str]:
+    def get_job_logs(self, job_name: str) -> str | None:
         """Get logs from the job's pod."""
         try:
             pods = self.core_v1.list_namespaced_pod(
@@ -195,9 +193,11 @@ class K8sService:
                 label_selector=f"job-name={job_name}",
             )
             if pods.items:
-                return self.core_v1.read_namespaced_pod_log(
-                    name=pods.items[0].metadata.name,
-                    namespace=self.namespace,
+                return str(
+                    self.core_v1.read_namespaced_pod_log(
+                        name=pods.items[0].metadata.name,
+                        namespace=self.namespace,
+                    )
                 )
         except ApiException as e:
             logger.error("Error getting logs for K8s Job %s: %s", job_name, e)

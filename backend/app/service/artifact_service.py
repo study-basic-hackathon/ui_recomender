@@ -3,9 +3,9 @@ import json
 import logging
 import re
 from pathlib import Path
-from typing import Optional
+from typing import Any
 
-from app.core.config import settings
+from app.core.config import get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +25,7 @@ class ArtifactService:
     """
 
     def __init__(self) -> None:
-        self.base_dir = Path(settings.ARTIFACTS_DIR)
+        self.base_dir = Path(get_settings().ARTIFACTS_DIR)
 
     def extract_artifacts_from_logs(self, job_id: str, logs: str) -> dict[str, str]:
         """Extract artifacts embedded in pod logs and save them locally.
@@ -79,7 +79,9 @@ class ArtifactService:
                     saved[name] = str(path)
                     logger.info(
                         "Extracted binary artifact %s for job %s proposal %d",
-                        name, job_id, proposal_index,
+                        name,
+                        job_id,
+                        proposal_index,
                     )
                 except Exception as e:
                     logger.error("Failed to decode %s: %s", name, e)
@@ -89,16 +91,18 @@ class ArtifactService:
                 saved[name] = str(path)
                 logger.info(
                     "Extracted text artifact %s for job %s proposal %d",
-                    name, job_id, proposal_index,
+                    name,
+                    job_id,
+                    proposal_index,
                 )
 
         return saved
 
-    def get_before_screenshot_path(self, job_id: str) -> Optional[Path]:
+    def get_before_screenshot_path(self, job_id: str) -> Path | None:
         path = self.base_dir / job_id / "before.png"
         return path if path.exists() else None
 
-    def get_proposals_json(self, job_id: str) -> Optional[list[dict]]:
+    def get_proposals_json(self, job_id: str) -> list[dict[str, Any]] | None:
         """Read proposals.json from local cache."""
         path = self.base_dir / job_id / "proposals.json"
         if not path.exists():
@@ -108,7 +112,8 @@ class ArtifactService:
         try:
             data = json.loads(path.read_text())
             if isinstance(data, dict) and "proposals" in data:
-                return data["proposals"]
+                proposals: list[dict[str, Any]] = data["proposals"]
+                return proposals
             if isinstance(data, list):
                 return data
             logger.warning("Unexpected proposals format for job %s", job_id)
@@ -117,22 +122,12 @@ class ArtifactService:
             logger.error("Failed to parse proposals for job %s: %s", job_id, e)
             return None
 
-    def get_after_screenshot_path(
-        self, job_id: str, proposal_index: int
-    ) -> Optional[Path]:
-        path = (
-            self.base_dir / job_id / "proposals" / str(proposal_index) / "after.png"
-        )
+    def get_after_screenshot_path(self, job_id: str, proposal_index: int) -> Path | None:
+        path = self.base_dir / job_id / "proposals" / str(proposal_index) / "after.png"
         return path if path.exists() else None
 
-    def get_diff(self, job_id: str, proposal_index: int) -> Optional[str]:
-        path = (
-            self.base_dir
-            / job_id
-            / "proposals"
-            / str(proposal_index)
-            / "changes.diff"
-        )
+    def get_diff(self, job_id: str, proposal_index: int) -> str | None:
+        path = self.base_dir / job_id / "proposals" / str(proposal_index) / "changes.diff"
         if not path.exists():
             return None
         try:
@@ -141,9 +136,7 @@ class ArtifactService:
             logger.error("Failed to read diff: %s", e)
             return None
 
-    def write_proposal_plan(
-        self, job_id: str, proposal_index: int, plan_text: str
-    ) -> Path:
+    def write_proposal_plan(self, job_id: str, proposal_index: int, plan_text: str) -> Path:
         """Write proposal plan to a file (used for local reference)."""
         path = self.base_dir / job_id / f"proposal_{proposal_index}_plan.txt"
         path.parent.mkdir(parents=True, exist_ok=True)

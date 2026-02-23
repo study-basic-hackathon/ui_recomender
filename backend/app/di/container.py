@@ -1,4 +1,4 @@
-from typing import Generator
+from collections.abc import Generator
 
 from sqlalchemy.orm import Session
 
@@ -12,7 +12,7 @@ class DIContainer:
     """依存性注入コンテナ"""
 
     @staticmethod
-    def get_db() -> Generator[Session, None, None]:
+    def get_db() -> Generator[Session]:
         """データベースセッションを取得"""
         try:
             db = SessionLocal()

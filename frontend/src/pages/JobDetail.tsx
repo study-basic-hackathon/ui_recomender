@@ -1,26 +1,26 @@
-import { useState, useCallback } from 'react';
-import { useParams, Link } from 'react-router-dom';
-import { useJobPolling } from '../hooks/useJobPolling';
-import StatusBadge from '../components/StatusBadge';
-import ProposalCard from '../components/ProposalCard';
+import { useState, useCallback } from 'react'
+import { useParams, Link } from 'react-router-dom'
+import { useJobPolling } from '../hooks/useJobPolling'
+import StatusBadge from '../components/StatusBadge'
+import ProposalCard from '../components/ProposalCard'
 
 export default function JobDetail() {
-  const { jobId } = useParams<{ jobId: string }>();
-  const { job, error, isLoading } = useJobPolling(jobId ?? null);
-  const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
+  const { jobId } = useParams<{ jobId: string }>()
+  const { job, error, isLoading } = useJobPolling(jobId ?? null)
+  const [selectedIndex, setSelectedIndex] = useState<number | null>(null)
 
   const toggleProposal = useCallback((index: number) => {
-    setSelectedIndex((prev) => (prev === index ? null : index));
-  }, []);
+    setSelectedIndex((prev) => (prev === index ? null : index))
+  }, [])
 
-  if (!jobId) return <p>Invalid job ID</p>;
+  if (!jobId) return <p>Invalid job ID</p>
 
   if (isLoading && !job) {
     return (
       <div style={{ maxWidth: '1000px', margin: '0 auto', padding: '24px' }}>
         <p>Loading...</p>
       </div>
-    );
+    )
   }
 
   if (error) {
@@ -29,15 +29,15 @@ export default function JobDetail() {
         <p style={{ color: '#dc2626' }}>Error: {error}</p>
         <Link to="/">Back to Dashboard</Link>
       </div>
-    );
+    )
   }
 
-  if (!job) return null;
+  if (!job) return null
 
-  const isInProgress = ['pending', 'analyzing', 'implementing'].includes(job.status);
+  const isInProgress = ['pending', 'analyzing', 'implementing'].includes(job.status)
   const completedProposals = job.proposals.filter(
     (p) => p.status === 'completed' && p.after_screenshot_url,
-  );
+  )
 
   return (
     <div style={{ maxWidth: '1000px', margin: '0 auto', padding: '24px' }}>
@@ -58,32 +58,37 @@ export default function JobDetail() {
       </div>
 
       {job.error_message && (
-        <div style={{
-          padding: '12px',
-          backgroundColor: '#fef2f2',
-          border: '1px solid #fecaca',
-          borderRadius: '6px',
-          color: '#991b1b',
-          fontSize: '14px',
-          marginBottom: '16px',
-        }}>
+        <div
+          style={{
+            padding: '12px',
+            backgroundColor: '#fef2f2',
+            border: '1px solid #fecaca',
+            borderRadius: '6px',
+            color: '#991b1b',
+            fontSize: '14px',
+            marginBottom: '16px',
+          }}
+        >
           {job.error_message}
         </div>
       )}
 
       {isInProgress && (
-        <div style={{
-          padding: '16px',
-          backgroundColor: '#f0f9ff',
-          borderRadius: '6px',
-          marginBottom: '16px',
-          textAlign: 'center',
-          fontSize: '14px',
-          color: '#1e40af',
-        }}>
+        <div
+          style={{
+            padding: '16px',
+            backgroundColor: '#f0f9ff',
+            borderRadius: '6px',
+            marginBottom: '16px',
+            textAlign: 'center',
+            fontSize: '14px',
+            color: '#1e40af',
+          }}
+        >
           {job.status === 'pending' && 'Job is queued...'}
           {job.status === 'analyzing' && 'Analyzing repository and generating proposals...'}
-          {job.status === 'implementing' && 'Implementing all proposals... This may take a few minutes.'}
+          {job.status === 'implementing' &&
+            'Implementing all proposals... This may take a few minutes.'}
         </div>
       )}
 
@@ -105,11 +110,13 @@ export default function JobDetail() {
               <h2 style={{ fontSize: '16px', marginBottom: '12px' }}>
                 Select a design ({completedProposals.length} proposals)
               </h2>
-              <div style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
-                gap: '16px',
-              }}>
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
+                  gap: '16px',
+                }}
+              >
                 {completedProposals.map((proposal) => (
                   <ProposalCard
                     key={proposal.id}
@@ -124,5 +131,5 @@ export default function JobDetail() {
         </>
       )}
     </div>
-  );
+  )
 }

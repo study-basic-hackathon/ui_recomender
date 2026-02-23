@@ -1,21 +1,29 @@
 import uuid
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 
-from app.di.dependencies import get_db
+from app.di.dependencies import get_artifact_service, get_db
 from app.main import app
 from app.model.job import Job, JobStatus, Proposal
+from app.service.artifact_service import ArtifactService
 
 
 @pytest.fixture()
-def client(db):
-    """Create a test client with overridden DB dependency."""
+def client(db, tmp_path):
+    """Create a test client with overridden dependencies."""
 
     def override_get_db():
         yield db
 
+    def override_get_artifact_service() -> ArtifactService:
+        service = ArtifactService.__new__(ArtifactService)
+        service.base_dir = Path(tmp_path)
+        return service
+
     app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[get_artifact_service] = override_get_artifact_service
     with TestClient(app) as c:
         yield c
     app.dependency_overrides.clear()
@@ -113,9 +121,7 @@ class TestCreateJob:
         # Mock the asyncio.create_task to avoid launching background analysis
         import app.usecase.job_usecase as usecase_mod
 
-        monkeypatch.setattr(
-            usecase_mod.asyncio, "create_task", lambda coro: coro.close()
-        )
+        monkeypatch.setattr(usecase_mod.asyncio, "create_task", lambda coro: coro.close())
 
         response = client.post(
             "/api/jobs/",
@@ -166,9 +172,7 @@ class TestSettingsAPI:
         assert isinstance(response.json(), list)
 
     def test_create_and_list_setting(self, client):
-        response = client.post(
-            "/api/settings/", json={"key": "max_proposals", "value": "5"}
-        )
+        response = client.post("/api/settings/", json={"key": "max_proposals", "value": "5"})
         assert response.status_code == 200
         data = response.json()
         assert data["key"] == "max_proposals"
@@ -181,8 +185,6 @@ class TestSettingsAPI:
 
     def test_update_setting(self, client):
         client.post("/api/settings/", json={"key": "theme", "value": "dark"})
-        response = client.post(
-            "/api/settings/", json={"key": "theme", "value": "light"}
-        )
+        response = client.post("/api/settings/", json={"key": "theme", "value": "light"})
         assert response.status_code == 200
         assert response.json()["value"] == "light"

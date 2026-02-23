@@ -1,4 +1,5 @@
 import logging
+from typing import Any
 
 from langgraph.graph import END, START, StateGraph
 
@@ -15,9 +16,7 @@ async def create_k8s_job(state: ImplementationState) -> dict:
 
     # Write proposal plan to artifact directory to avoid K8s env var size limits
     artifacts = ArtifactService()
-    artifacts.write_proposal_plan(
-        state["job_id"], state["proposal_index"], state["proposal_plan"]
-    )
+    artifacts.write_proposal_plan(state["job_id"], state["proposal_index"], state["proposal_plan"])
 
     job_name = k8s.create_implementation_job(
         job_id=state["job_id"],
@@ -32,12 +31,14 @@ async def create_k8s_job(state: ImplementationState) -> dict:
 async def wait_for_job(state: ImplementationState) -> dict:
     """Poll K8s Job until completion."""
     k8s = K8sService()
-    result = await k8s.wait_for_job(state["k8s_job_name"])
+    k8s_job_name = state["k8s_job_name"]
+    assert k8s_job_name is not None
+    result = await k8s.wait_for_job(k8s_job_name)
 
     if result == "succeeded":
         return {"status": "succeeded"}
 
-    logs = k8s.get_job_logs(state["k8s_job_name"])
+    logs = k8s.get_job_logs(k8s_job_name)
     error_msg = f"Implementation job {result}."
     if logs:
         error_msg += f" Logs: {logs[:500]}"
@@ -50,15 +51,13 @@ async def extract_results(state: ImplementationState) -> dict:
     artifacts = ArtifactService()
 
     # Get pod logs and extract embedded artifacts
-    logs = k8s.get_job_logs(state["k8s_job_name"])
+    k8s_job_name = state["k8s_job_name"]
+    assert k8s_job_name is not None
+    logs = k8s.get_job_logs(k8s_job_name)
     if logs:
-        artifacts.extract_impl_artifacts_from_logs(
-            state["job_id"], state["proposal_index"], logs
-        )
+        artifacts.extract_impl_artifacts_from_logs(state["job_id"], state["proposal_index"], logs)
 
-    after_path = artifacts.get_after_screenshot_path(
-        state["job_id"], state["proposal_index"]
-    )
+    after_path = artifacts.get_after_screenshot_path(state["job_id"], state["proposal_index"])
     diff_content = artifacts.get_diff(state["job_id"], state["proposal_index"])
 
     return {
@@ -74,7 +73,7 @@ def route_after_wait(state: ImplementationState) -> str:
     return END
 
 
-def build_implementation_graph() -> StateGraph:
+def build_implementation_graph() -> Any:
     """Build and compile the implementation LangGraph."""
     graph = StateGraph(ImplementationState)
 

@@ -1,39 +1,39 @@
-import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { createJob, listJobs, type Job } from '../services/api';
-import StatusBadge from '../components/StatusBadge';
+import { useState, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { createJob, listJobs, type Job } from '../services/api'
+import StatusBadge from '../components/StatusBadge'
 
 export default function Dashboard() {
-  const navigate = useNavigate();
-  const [repoUrl, setRepoUrl] = useState('');
-  const [branch, setBranch] = useState('main');
-  const [instruction, setInstruction] = useState('');
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [submitError, setSubmitError] = useState<string | null>(null);
-  const [jobs, setJobs] = useState<Job[]>([]);
+  const navigate = useNavigate()
+  const [repoUrl, setRepoUrl] = useState('')
+  const [branch, setBranch] = useState('main')
+  const [instruction, setInstruction] = useState('')
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [submitError, setSubmitError] = useState<string | null>(null)
+  const [jobs, setJobs] = useState<Job[]>([])
 
   useEffect(() => {
     listJobs()
       .then(setJobs)
-      .catch(() => {});
-  }, []);
+      .catch(() => {})
+  }, [])
 
   const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!repoUrl || !instruction) return;
+    e.preventDefault()
+    if (!repoUrl || !instruction) return
 
-    setIsSubmitting(true);
-    setSubmitError(null);
+    setIsSubmitting(true)
+    setSubmitError(null)
 
     try {
-      const job = await createJob({ repo_url: repoUrl, branch, instruction });
-      navigate(`/jobs/${job.id}`);
+      const job = await createJob({ repo_url: repoUrl, branch, instruction })
+      navigate(`/jobs/${job.id}`)
     } catch (err) {
-      setSubmitError((err as Error).message);
+      setSubmitError((err as Error).message)
     } finally {
-      setIsSubmitting(false);
+      setIsSubmitting(false)
     }
-  };
+  }
 
   return (
     <div style={{ maxWidth: '800px', margin: '0 auto', padding: '24px' }}>
@@ -41,7 +41,9 @@ export default function Dashboard() {
 
       <form onSubmit={handleSubmit} style={{ marginBottom: '32px' }}>
         <div style={{ marginBottom: '16px' }}>
-          <label style={{ display: 'block', marginBottom: '4px', fontSize: '14px', fontWeight: 600 }}>
+          <label
+            style={{ display: 'block', marginBottom: '4px', fontSize: '14px', fontWeight: 600 }}
+          >
             Repository URL
           </label>
           <input
@@ -62,7 +64,9 @@ export default function Dashboard() {
         </div>
 
         <div style={{ marginBottom: '16px' }}>
-          <label style={{ display: 'block', marginBottom: '4px', fontSize: '14px', fontWeight: 600 }}>
+          <label
+            style={{ display: 'block', marginBottom: '4px', fontSize: '14px', fontWeight: 600 }}
+          >
             Branch
           </label>
           <input
@@ -82,7 +86,9 @@ export default function Dashboard() {
         </div>
 
         <div style={{ marginBottom: '16px' }}>
-          <label style={{ display: 'block', marginBottom: '4px', fontSize: '14px', fontWeight: 600 }}>
+          <label
+            style={{ display: 'block', marginBottom: '4px', fontSize: '14px', fontWeight: 600 }}
+          >
             UI Change Instruction
           </label>
           <textarea
@@ -104,9 +110,7 @@ export default function Dashboard() {
         </div>
 
         {submitError && (
-          <p style={{ color: '#dc2626', fontSize: '14px', marginBottom: '12px' }}>
-            {submitError}
-          </p>
+          <p style={{ color: '#dc2626', fontSize: '14px', marginBottom: '12px' }}>{submitError}</p>
         )}
 
         <button
@@ -162,5 +166,5 @@ export default function Dashboard() {
         </div>
       )}
     </div>
-  );
+  )
 }

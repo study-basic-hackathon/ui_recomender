@@ -1,18 +1,14 @@
-import type { Proposal } from '../services/api';
+import type { Proposal } from '../services/api'
 
 type ProposalCardProps = {
-  proposal: Proposal;
-  selected: boolean;
-  onToggle: (index: number) => void;
-};
+  proposal: Proposal
+  selected: boolean
+  onToggle: (index: number) => void
+}
 
-export default function ProposalCard({
-  proposal,
-  selected,
-  onToggle,
-}: ProposalCardProps) {
+export default function ProposalCard({ proposal, selected, onToggle }: ProposalCardProps) {
   if (proposal.status !== 'completed' || !proposal.after_screenshot_url) {
-    return null;
+    return null
   }
 
   return (
@@ -39,5 +35,5 @@ export default function ProposalCard({
         </h3>
       </div>
     </div>
-  );
+  )
 }

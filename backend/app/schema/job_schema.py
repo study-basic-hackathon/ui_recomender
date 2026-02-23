@@ -1,5 +1,4 @@
 from datetime import datetime
-from typing import Optional
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -20,10 +19,10 @@ class ProposalResponse(BaseModel):
     concept: str
     plan: list[str]
     files: list[dict]
-    complexity: Optional[str]
+    complexity: str | None
     status: str
-    after_screenshot_url: Optional[str] = None
-    error_message: Optional[str] = None
+    after_screenshot_url: str | None = None
+    error_message: str | None = None
     created_at: datetime
 
 
@@ -35,17 +34,15 @@ class JobResponse(BaseModel):
     repo_url: str
     branch: str
     instruction: str
-    before_screenshot_url: Optional[str] = None
-    error_message: Optional[str] = None
+    before_screenshot_url: str | None = None
+    error_message: str | None = None
     proposals: list[ProposalResponse] = []
     created_at: datetime
     updated_at: datetime
 
 
 class ImplementRequest(BaseModel):
-    proposal_indices: list[int] = Field(
-        ..., description="Indices of proposals to implement"
-    )
+    proposal_indices: list[int] = Field(..., description="Indices of proposals to implement")
 
 
 class SettingRequest(BaseModel):

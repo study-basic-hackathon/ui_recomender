@@ -1,18 +1,18 @@
-import { useRouteError, isRouteErrorResponse, Link } from 'react-router-dom';
+import { useRouteError, isRouteErrorResponse, Link } from 'react-router-dom'
 
 export default function ErrorPage() {
-  const error = useRouteError();
+  const error = useRouteError()
 
-  let errorMessage: string;
-  let errorStatus: number | undefined;
+  let errorMessage: string
+  let errorStatus: number | undefined
 
   if (isRouteErrorResponse(error)) {
-    errorStatus = error.status;
-    errorMessage = error.statusText || error.data?.message || 'An error occurred';
+    errorStatus = error.status
+    errorMessage = error.statusText || error.data?.message || 'An error occurred'
   } else if (error instanceof Error) {
-    errorMessage = error.message;
+    errorMessage = error.message
   } else {
-    errorMessage = 'Unknown error occurred';
+    errorMessage = 'Unknown error occurred'
   }
 
   return (
@@ -26,5 +26,5 @@ export default function ErrorPage() {
         Go back to home
       </Link>
     </div>
-  );
+  )
 }

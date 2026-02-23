@@ -1,6 +1,6 @@
 import uuid
 
-from app.model.job import Job, JobStatus, Proposal, ProposalStatus, Setting
+from app.model.job import Job, JobStatus, Proposal, ProposalStatus
 from app.repository.job_repository import JobRepository
 from app.repository.proposal_repository import ProposalRepository
 from app.repository.setting_repository import SettingRepository
@@ -38,9 +38,7 @@ class TestJobRepository:
             )
         )
 
-        updated = repo.update_status(
-            job.id, JobStatus.ANALYZING, k8s_job_name="test-job"
-        )
+        updated = repo.update_status(job.id, JobStatus.ANALYZING, k8s_job_name="test-job")
         assert updated is not None
         assert updated.status == JobStatus.ANALYZING
         assert updated.k8s_job_name == "test-job"
@@ -55,9 +53,7 @@ class TestJobRepository:
             )
         )
 
-        updated = repo.update_status(
-            job.id, JobStatus.FAILED, error_message="Something went wrong"
-        )
+        updated = repo.update_status(job.id, JobStatus.FAILED, error_message="Something went wrong")
         assert updated is not None
         assert updated.status == JobStatus.FAILED
         assert updated.error_message == "Something went wrong"

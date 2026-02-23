@@ -1,5 +1,3 @@
-from typing import Optional
-
 from sqlalchemy.orm import Session
 
 from app.model.job import Setting
@@ -9,7 +7,7 @@ class SettingRepository:
     def __init__(self, db: Session) -> None:
         self.db = db
 
-    def get_by_key(self, key: str) -> Optional[Setting]:
+    def get_by_key(self, key: str) -> Setting | None:
         return self.db.query(Setting).filter(Setting.key == key).first()
 
     def upsert(self, key: str, value: str) -> Setting:

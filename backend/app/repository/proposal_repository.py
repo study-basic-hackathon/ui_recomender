@@ -1,4 +1,3 @@
-from typing import Optional
 from uuid import UUID
 
 from sqlalchemy.orm import Session
@@ -16,12 +15,10 @@ class ProposalRepository:
         self.db.refresh(proposal)
         return proposal
 
-    def get_by_id(self, proposal_id: UUID) -> Optional[Proposal]:
+    def get_by_id(self, proposal_id: UUID) -> Proposal | None:
         return self.db.query(Proposal).filter(Proposal.id == proposal_id).first()
 
-    def get_by_job_and_index(
-        self, job_id: UUID, proposal_index: int
-    ) -> Optional[Proposal]:
+    def get_by_job_and_index(self, job_id: UUID, proposal_index: int) -> Proposal | None:
         return (
             self.db.query(Proposal)
             .filter(
@@ -41,7 +38,7 @@ class ProposalRepository:
 
     def update_status(
         self, proposal_id: UUID, status: ProposalStatus, **kwargs: object
-    ) -> Optional[Proposal]:
+    ) -> Proposal | None:
         proposal = self.get_by_id(proposal_id)
         if proposal:
             proposal.status = status

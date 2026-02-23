@@ -1,3 +1,5 @@
+from collections.abc import Generator
+
 import pytest
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import Session, sessionmaker
@@ -31,7 +33,7 @@ def engine():
 
 
 @pytest.fixture()
-def db(engine) -> Session:
+def db(engine) -> Generator[Session]:
     """Provide a transactional DB session that rolls back after each test."""
     connection = engine.connect()
     transaction = connection.begin()

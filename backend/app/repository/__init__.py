@@ -13,14 +13,13 @@
 #     - *_repository_interface.py: リポジトリインターフェース
 #     - *_repository_sql.py: SQL実装
 
-from .database import SessionLocal, engine
+from .database import SessionLocal
 from .job_repository import JobRepository
 from .proposal_repository import ProposalRepository
 from .setting_repository import SettingRepository
 
 __all__ = [
     "SessionLocal",
-    "engine",
     "JobRepository",
     "ProposalRepository",
     "SettingRepository",

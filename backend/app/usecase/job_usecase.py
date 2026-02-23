@@ -5,7 +5,7 @@ from uuid import UUID
 
 from sqlalchemy.orm import Session
 
-from app.core.config import settings
+from app.core.config import get_settings
 from app.model.job import Job, JobStatus, Proposal, ProposalStatus
 from app.repository.database import SessionLocal
 from app.repository.job_repository import JobRepository
@@ -57,7 +57,7 @@ class CreateJobUseCase:
                     "repo_url": repo_url,
                     "branch": branch,
                     "instruction": instruction,
-                    "num_proposals": settings.MAX_PROPOSALS,
+                    "num_proposals": get_settings().MAX_PROPOSALS,
                     "k8s_job_name": None,
                     "status": "pending",
                     "error": None,

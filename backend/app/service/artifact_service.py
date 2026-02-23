@@ -5,7 +5,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-from app.core.config import settings
+from app.core.config import get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +25,7 @@ class ArtifactService:
     """
 
     def __init__(self) -> None:
-        self.base_dir = Path(settings.ARTIFACTS_DIR)
+        self.base_dir = Path(get_settings().ARTIFACTS_DIR)
 
     def extract_artifacts_from_logs(self, job_id: str, logs: str) -> dict[str, str]:
         """Extract artifacts embedded in pod logs and save them locally.

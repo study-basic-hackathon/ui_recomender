@@ -3,7 +3,7 @@ from logging.config import fileConfig
 from alembic import context
 from sqlalchemy import engine_from_config, pool
 
-from app.core.config import settings
+from app.core.config import get_settings
 from app.model.base import Base
 from app.model.job import Job, Proposal, Setting  # noqa: F401
 
@@ -22,7 +22,7 @@ target_metadata = Base.metadata
 # can be acquired:
 # my_important_option = config.get_main_option("my_important_option")
 # ... etc.
-config.set_section_option("alembic", "DB_URL", settings.SQLALCHEMY_DATABASE_URI)
+config.set_section_option("alembic", "DB_URL", get_settings().SQLALCHEMY_DATABASE_URI)
 
 
 def run_migrations_offline() -> None:

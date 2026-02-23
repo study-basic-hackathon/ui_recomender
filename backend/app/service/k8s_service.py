@@ -4,7 +4,7 @@ import logging
 from kubernetes import client, config
 from kubernetes.client.rest import ApiException
 
-from app.core.config import settings
+from app.core.config import get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -13,6 +13,7 @@ class K8sService:
     """Kubernetes Job management service."""
 
     def __init__(self) -> None:
+        settings = get_settings()
         if settings.K8S_IN_CLUSTER:
             config.load_incluster_config()
         else:
@@ -28,6 +29,8 @@ class K8sService:
         self.batch_v1 = client.BatchV1Api()
         self.core_v1 = client.CoreV1Api()
         self.namespace = settings.K8S_NAMESPACE
+        self.worker_image = settings.WORKER_IMAGE
+        self.worker_deadline_seconds = settings.WORKER_DEADLINE_SECONDS
 
     def _build_worker_container(
         self, mode: str, env_vars: list[client.V1EnvVar]
@@ -48,7 +51,7 @@ class K8sService:
         ]
         return client.V1Container(
             name="worker",
-            image=settings.WORKER_IMAGE,
+            image=self.worker_image,
             image_pull_policy="Never",
             env=base_env + env_vars,
             resources=client.V1ResourceRequirements(
@@ -95,7 +98,7 @@ class K8sService:
                 template=template,
                 backoff_limit=1,
                 ttl_seconds_after_finished=1800,
-                active_deadline_seconds=settings.WORKER_DEADLINE_SECONDS,
+                active_deadline_seconds=self.worker_deadline_seconds,
             ),
         )
 

@@ -1,7 +1,7 @@
 type DiffViewerProps = {
-  diff: string;
-  onClose: () => void;
-};
+  diff: string
+  onClose: () => void
+}
 
 export default function DiffViewer({ diff, onClose }: DiffViewerProps) {
   return (
@@ -32,7 +32,14 @@ export default function DiffViewer({ diff, onClose }: DiffViewerProps) {
         }}
         onClick={(e) => e.stopPropagation()}
       >
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            marginBottom: '12px',
+          }}
+        >
           <h3 style={{ margin: 0, color: '#e5e7eb' }}>Changes Diff</h3>
           <button
             onClick={onClose}
@@ -61,18 +68,18 @@ export default function DiffViewer({ diff, onClose }: DiffViewerProps) {
           }}
         >
           {diff.split('\n').map((line, i) => {
-            let color = '#d1d5db';
-            if (line.startsWith('+') && !line.startsWith('+++')) color = '#34d399';
-            else if (line.startsWith('-') && !line.startsWith('---')) color = '#f87171';
-            else if (line.startsWith('@@')) color = '#60a5fa';
+            let color = '#d1d5db'
+            if (line.startsWith('+') && !line.startsWith('+++')) color = '#34d399'
+            else if (line.startsWith('-') && !line.startsWith('---')) color = '#f87171'
+            else if (line.startsWith('@@')) color = '#60a5fa'
             return (
               <div key={i} style={{ color }}>
                 {line}
               </div>
-            );
+            )
           })}
         </pre>
       </div>
     </div>
-  );
+  )
 }

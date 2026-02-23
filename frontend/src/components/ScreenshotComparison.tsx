@@ -1,13 +1,10 @@
 type ScreenshotComparisonProps = {
-  beforeUrl: string | null;
-  afterUrl: string | null;
-};
+  beforeUrl: string | null
+  afterUrl: string | null
+}
 
-export default function ScreenshotComparison({
-  beforeUrl,
-  afterUrl,
-}: ScreenshotComparisonProps) {
-  if (!beforeUrl && !afterUrl) return null;
+export default function ScreenshotComparison({ beforeUrl, afterUrl }: ScreenshotComparisonProps) {
+  if (!beforeUrl && !afterUrl) return null
 
   return (
     <div style={{ display: 'flex', gap: '16px', marginTop: '16px', flexWrap: 'wrap' }}>
@@ -40,5 +37,5 @@ export default function ScreenshotComparison({
         </div>
       )}
     </div>
-  );
+  )
 }

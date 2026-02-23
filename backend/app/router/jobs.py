@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
-from app.di.dependencies import get_db
+from app.di.dependencies import get_artifact_service, get_db
 from app.model.job import Job, Proposal
 from app.repository.job_repository import JobRepository
 from app.schema.job_schema import (
@@ -110,8 +110,9 @@ async def implement_proposals(
 
 
 @router.get("/{job_id}/screenshot/before")
-async def get_before_screenshot(job_id: UUID) -> FileResponse:
-    artifacts = ArtifactService()
+async def get_before_screenshot(
+    job_id: UUID, artifacts: ArtifactService = Depends(get_artifact_service)
+) -> FileResponse:
     path = artifacts.get_before_screenshot_path(str(job_id))
     if not path:
         raise HTTPException(status_code=404, detail="Screenshot not found")
@@ -119,8 +120,11 @@ async def get_before_screenshot(job_id: UUID) -> FileResponse:
 
 
 @router.get("/{job_id}/proposals/{proposal_index}/screenshot")
-async def get_after_screenshot(job_id: UUID, proposal_index: int) -> FileResponse:
-    artifacts = ArtifactService()
+async def get_after_screenshot(
+    job_id: UUID,
+    proposal_index: int,
+    artifacts: ArtifactService = Depends(get_artifact_service),
+) -> FileResponse:
     path = artifacts.get_after_screenshot_path(str(job_id), proposal_index)
     if not path:
         raise HTTPException(status_code=404, detail="Screenshot not found")
@@ -128,8 +132,11 @@ async def get_after_screenshot(job_id: UUID, proposal_index: int) -> FileRespons
 
 
 @router.get("/{job_id}/proposals/{proposal_index}/diff")
-async def get_diff(job_id: UUID, proposal_index: int) -> dict:
-    artifacts = ArtifactService()
+async def get_diff(
+    job_id: UUID,
+    proposal_index: int,
+    artifacts: ArtifactService = Depends(get_artifact_service),
+) -> dict:
     diff = artifacts.get_diff(str(job_id), proposal_index)
     if not diff:
         raise HTTPException(status_code=404, detail="Diff not found")

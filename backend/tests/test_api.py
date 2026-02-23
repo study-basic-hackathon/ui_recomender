@@ -1,21 +1,29 @@
 import uuid
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 
-from app.di.dependencies import get_db
+from app.di.dependencies import get_artifact_service, get_db
 from app.main import app
 from app.model.job import Job, JobStatus, Proposal
+from app.service.artifact_service import ArtifactService
 
 
 @pytest.fixture()
-def client(db):
-    """Create a test client with overridden DB dependency."""
+def client(db, tmp_path):
+    """Create a test client with overridden dependencies."""
 
     def override_get_db():
         yield db
 
+    def override_get_artifact_service() -> ArtifactService:
+        service = ArtifactService.__new__(ArtifactService)
+        service.base_dir = Path(tmp_path)
+        return service
+
     app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[get_artifact_service] = override_get_artifact_service
     with TestClient(app) as c:
         yield c
     app.dependency_overrides.clear()

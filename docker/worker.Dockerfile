@@ -55,8 +55,8 @@ RUN npm install -g playwright@1.49.0 && \
 RUN pip install --no-cache-dir claude-agent-sdk
 
 # Configure git identity for commits inside worker pods
-RUN git config --global user.name "UI Recommender" && \
-    git config --global user.email "bot@ui-recommender.local"
+RUN git config --global user.name "Claude Code" && \
+    git config --global user.email "noreply@anthropic.com"
 
 # Copy worker scripts
 COPY docker/worker-entrypoint.sh /usr/local/bin/worker-entrypoint.sh

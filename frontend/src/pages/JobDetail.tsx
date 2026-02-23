@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
-import { useParams, Link } from 'react-router-dom'
+import { useParams } from 'react-router-dom'
 import { useJobPolling } from '../hooks/useJobPolling'
 import { createPR, getJob } from '../services/api'
 import StatusBadge from '../components/StatusBadge'
@@ -81,7 +81,6 @@ export default function JobDetail() {
     return (
       <div style={{ maxWidth: '1000px', margin: '0 auto', padding: '24px' }}>
         <p style={{ color: '#dc2626' }}>Error: {error}</p>
-        <Link to="/">Back to Dashboard</Link>
       </div>
     )
   }
@@ -100,16 +99,12 @@ export default function JobDetail() {
 
   return (
     <div style={{ maxWidth: '1000px', margin: '0 auto', padding: '24px' }}>
-      <Link to="/" style={{ fontSize: '14px', color: '#6b7280', textDecoration: 'none' }}>
-        &larr; Back to Dashboard
-      </Link>
-
-      <div style={{ marginTop: '16px', marginBottom: '24px' }}>
+      <div style={{ marginBottom: '24px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <h1 style={{ fontSize: '20px', margin: 0 }}>Job Detail</h1>
           <StatusBadge status={job.status} />
         </div>
-        <div style={{ fontSize: '14px', color: '#6b7280', marginTop: '8px' }}>
+        <div style={{ fontSize: '16px', color: '#6b7280', marginTop: '8px' }}>
           <div>Repository: {job.repo_url}</div>
           <div>Branch: {job.branch}</div>
           <div style={{ marginTop: '4px' }}>Instruction: {job.instruction}</div>
@@ -124,7 +119,7 @@ export default function JobDetail() {
             border: '1px solid #fecaca',
             borderRadius: '6px',
             color: '#991b1b',
-            fontSize: '14px',
+            fontSize: '16px',
             marginBottom: '16px',
           }}
         >
@@ -140,7 +135,7 @@ export default function JobDetail() {
             borderRadius: '6px',
             marginBottom: '16px',
             textAlign: 'center',
-            fontSize: '14px',
+            fontSize: '16px',
             color: '#1e40af',
           }}
         >
@@ -155,7 +150,7 @@ export default function JobDetail() {
         <>
           {job.before_screenshot_url && (
             <div style={{ marginBottom: '24px' }}>
-              <h2 style={{ fontSize: '16px', marginBottom: '8px' }}>Before</h2>
+              <h2 style={{ fontSize: '18px', marginBottom: '8px' }}>Before</h2>
               <img
                 src={job.before_screenshot_url}
                 alt="Before"
@@ -166,7 +161,7 @@ export default function JobDetail() {
 
           {completedProposals.length > 0 && (
             <div>
-              <h2 style={{ fontSize: '16px', marginBottom: '12px' }}>
+              <h2 style={{ fontSize: '18px', marginBottom: '12px' }}>
                 Select a design ({completedProposals.length} proposals)
               </h2>
               <div
@@ -200,7 +195,7 @@ export default function JobDetail() {
                         color: '#fff',
                         borderRadius: '6px',
                         textDecoration: 'none',
-                        fontSize: '14px',
+                        fontSize: '16px',
                         fontWeight: 600,
                       }}
                     >
@@ -213,7 +208,7 @@ export default function JobDetail() {
                         padding: '10px 24px',
                         backgroundColor: '#f0f9ff',
                         borderRadius: '6px',
-                        fontSize: '14px',
+                        fontSize: '16px',
                         color: '#1e40af',
                       }}
                     >
@@ -222,7 +217,7 @@ export default function JobDetail() {
                   )}
                   {selectedProposal.pr_status === 'failed' && (
                     <div>
-                      <p style={{ color: '#dc2626', fontSize: '14px', marginBottom: '8px' }}>
+                      <p style={{ color: '#dc2626', fontSize: '16px', marginBottom: '8px' }}>
                         PR creation failed
                       </p>
                       <button
@@ -235,7 +230,7 @@ export default function JobDetail() {
                           border: 'none',
                           borderRadius: '6px',
                           cursor: prLoading ? 'not-allowed' : 'pointer',
-                          fontSize: '14px',
+                          fontSize: '16px',
                           fontWeight: 600,
                           opacity: prLoading ? 0.7 : 1,
                         }}
@@ -255,7 +250,7 @@ export default function JobDetail() {
                         border: 'none',
                         borderRadius: '6px',
                         cursor: prLoading ? 'not-allowed' : 'pointer',
-                        fontSize: '14px',
+                        fontSize: '16px',
                         fontWeight: 600,
                         opacity: prLoading ? 0.7 : 1,
                       }}

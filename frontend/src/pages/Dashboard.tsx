@@ -1,21 +1,30 @@
 import { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { createJob, listJobs, type Job } from '../services/api'
-import StatusBadge from '../components/StatusBadge'
+import { useNavigate, Link } from 'react-router-dom'
+import { createJob, getSettings } from '../services/api'
+import { useLayoutContext } from '../hooks/useLayoutContext'
 
 export default function Dashboard() {
   const navigate = useNavigate()
-  const [repoUrl, setRepoUrl] = useState('')
-  const [branch, setBranch] = useState('main')
+  const { refreshJobs } = useLayoutContext()
   const [instruction, setInstruction] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
-  const [jobs, setJobs] = useState<Job[]>([])
+  const [repoUrl, setRepoUrl] = useState<string | null>(null)
+  const [branch, setBranch] = useState<string>('main')
+  const [settingsLoaded, setSettingsLoaded] = useState(false)
 
   useEffect(() => {
-    listJobs()
-      .then(setJobs)
-      .catch(() => {})
+    getSettings()
+      .then((settings) => {
+        for (const s of settings) {
+          if (s.key === 'repo_url') setRepoUrl(s.value)
+          if (s.key === 'branch') setBranch(s.value)
+        }
+        setSettingsLoaded(true)
+      })
+      .catch(() => {
+        setSettingsLoaded(true)
+      })
   }, [])
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -26,7 +35,8 @@ export default function Dashboard() {
     setSubmitError(null)
 
     try {
-      const job = await createJob({ repo_url: repoUrl, branch, instruction })
+      const job = await createJob({ repo_url: repoUrl, branch: branch || 'main', instruction })
+      refreshJobs()
       navigate(`/jobs/${job.id}`)
     } catch (err) {
       setSubmitError((err as Error).message)
@@ -39,55 +49,39 @@ export default function Dashboard() {
     <div style={{ maxWidth: '800px', margin: '0 auto', padding: '24px' }}>
       <h1 style={{ fontSize: '24px', marginBottom: '24px' }}>UI Recommender</h1>
 
-      <form onSubmit={handleSubmit} style={{ marginBottom: '32px' }}>
-        <div style={{ marginBottom: '16px' }}>
-          <label
-            style={{ display: 'block', marginBottom: '4px', fontSize: '14px', fontWeight: 600 }}
-          >
-            Repository URL
-          </label>
-          <input
-            type="url"
-            value={repoUrl}
-            onChange={(e) => setRepoUrl(e.target.value)}
-            placeholder="https://github.com/user/repo"
-            required
-            style={{
-              width: '100%',
-              padding: '8px 12px',
-              border: '1px solid #d1d5db',
-              borderRadius: '6px',
-              fontSize: '14px',
-              boxSizing: 'border-box',
-            }}
-          />
+      {settingsLoaded && (
+        <div
+          style={{
+            padding: '12px 16px',
+            backgroundColor: '#2a2a2a',
+            border: '1px solid #4b5563',
+            borderRadius: '6px',
+            marginBottom: '16px',
+            fontSize: '16px',
+            color: '#9ca3af',
+          }}
+        >
+          {repoUrl ? (
+            <>
+              {repoUrl.replace('https://github.com/', '')}
+              <span style={{ marginLeft: '8px', color: '#6b7280' }}>({branch || 'main'})</span>
+            </>
+          ) : (
+            <>
+              Repository URL is not configured.{' '}
+              <Link to="/settings" style={{ color: '#60a5fa', fontWeight: 600 }}>
+                Go to Settings
+              </Link>{' '}
+              to set it up.
+            </>
+          )}
         </div>
+      )}
 
+      <form onSubmit={handleSubmit}>
         <div style={{ marginBottom: '16px' }}>
           <label
-            style={{ display: 'block', marginBottom: '4px', fontSize: '14px', fontWeight: 600 }}
-          >
-            Branch
-          </label>
-          <input
-            type="text"
-            value={branch}
-            onChange={(e) => setBranch(e.target.value)}
-            placeholder="main"
-            style={{
-              width: '100%',
-              padding: '8px 12px',
-              border: '1px solid #d1d5db',
-              borderRadius: '6px',
-              fontSize: '14px',
-              boxSizing: 'border-box',
-            }}
-          />
-        </div>
-
-        <div style={{ marginBottom: '16px' }}>
-          <label
-            style={{ display: 'block', marginBottom: '4px', fontSize: '14px', fontWeight: 600 }}
+            style={{ display: 'block', marginBottom: '4px', fontSize: '16px', fontWeight: 600 }}
           >
             UI Change Instruction
           </label>
@@ -100,17 +94,19 @@ export default function Dashboard() {
             style={{
               width: '100%',
               padding: '8px 12px',
-              border: '1px solid #d1d5db',
+              border: '1px solid #4b5563',
               borderRadius: '6px',
-              fontSize: '14px',
+              fontSize: '16px',
               resize: 'vertical',
               boxSizing: 'border-box',
+              backgroundColor: '#1a1a1a',
+              color: 'rgba(255,255,255,0.87)',
             }}
           />
         </div>
 
         {submitError && (
-          <p style={{ color: '#dc2626', fontSize: '14px', marginBottom: '12px' }}>{submitError}</p>
+          <p style={{ color: '#f87171', fontSize: '16px', marginBottom: '12px' }}>{submitError}</p>
         )}
 
         <button
@@ -118,53 +114,18 @@ export default function Dashboard() {
           disabled={isSubmitting || !repoUrl || !instruction}
           style={{
             padding: '10px 24px',
-            backgroundColor: isSubmitting ? '#9ca3af' : '#2563eb',
+            backgroundColor: isSubmitting || !repoUrl ? '#4b5563' : '#2563eb',
             color: '#fff',
             border: 'none',
             borderRadius: '6px',
-            fontSize: '14px',
+            fontSize: '16px',
             fontWeight: 600,
-            cursor: isSubmitting ? 'not-allowed' : 'pointer',
+            cursor: isSubmitting || !repoUrl ? 'not-allowed' : 'pointer',
           }}
         >
           {isSubmitting ? 'Creating...' : 'Create Job'}
         </button>
       </form>
-
-      {jobs.length > 0 && (
-        <div>
-          <h2 style={{ fontSize: '18px', marginBottom: '12px' }}>Recent Jobs</h2>
-          <div>
-            {jobs.map((job) => (
-              <div
-                key={job.id}
-                onClick={() => navigate(`/jobs/${job.id}`)}
-                style={{
-                  padding: '12px 16px',
-                  border: '1px solid #e5e7eb',
-                  borderRadius: '6px',
-                  marginBottom: '8px',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                }}
-              >
-                <div>
-                  <div style={{ fontSize: '14px', fontWeight: 500 }}>
-                    {job.repo_url.replace('https://github.com/', '')}
-                  </div>
-                  <div style={{ fontSize: '13px', color: '#6b7280', marginTop: '2px' }}>
-                    {job.instruction.substring(0, 80)}
-                    {job.instruction.length > 80 ? '...' : ''}
-                  </div>
-                </div>
-                <StatusBadge status={job.status} />
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
     </div>
   )
 }

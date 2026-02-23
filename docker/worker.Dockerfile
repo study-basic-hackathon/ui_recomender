@@ -54,6 +54,10 @@ RUN npm install -g playwright@1.49.0 && \
 # Install Claude Agent SDK
 RUN pip install --no-cache-dir claude-agent-sdk
 
+# Configure git identity for commits inside worker pods
+RUN git config --global user.name "Claude Code" && \
+    git config --global user.email "noreply@anthropic.com"
+
 # Copy worker scripts
 COPY docker/worker-entrypoint.sh /usr/local/bin/worker-entrypoint.sh
 COPY docker/worker-analyze.py /usr/local/bin/worker-analyze.py

@@ -12,6 +12,7 @@ from app.repository.job_repository import JobRepository
 from app.repository.proposal_repository import ProposalRepository
 from app.service.artifact_service import ArtifactService
 from app.workflow.analyzer_graph import build_analyzer_graph
+from app.workflow.create_pr_graph import build_create_pr_graph
 from app.workflow.implementation_graph import build_implementation_graph
 
 logger = logging.getLogger(__name__)
@@ -281,3 +282,118 @@ class ImplementProposalUseCase:
             new_status = JobStatus.COMPLETED if any_succeeded else JobStatus.FAILED
             job_repo.update_status(job_id, new_status)
             logger.info("Job %s completed with status: %s", job_id, new_status)
+
+
+class CreatePRUseCase:
+    """Trigger PR creation for a completed proposal."""
+
+    def __init__(self, db: Session) -> None:
+        self.db = db
+        self.job_repo = JobRepository(db)
+        self.proposal_repo = ProposalRepository(db)
+
+    async def execute(self, job_id: UUID, proposal_index: int) -> Proposal:
+        job = self.job_repo.get_by_id(job_id)
+        if not job:
+            raise ValueError("Job not found")
+
+        proposal = self.proposal_repo.get_by_job_and_index(job_id, proposal_index)
+        if not proposal:
+            raise ValueError(f"Proposal {proposal_index} not found")
+        if proposal.status != ProposalStatus.COMPLETED:
+            raise ValueError(f"Proposal is not completed: {proposal.status}")
+        if proposal.pr_status == "created":
+            raise ValueError("PR already created")
+        if proposal.pr_status == "creating":
+            raise ValueError("PR creation already in progress")
+
+        proposal_id = UUID(str(proposal.id))
+        self.proposal_repo.update_status(proposal_id, proposal.status, pr_status="creating")
+
+        asyncio.create_task(
+            self._run_create_pr(
+                str(job_id),
+                str(job.repo_url),
+                str(job.branch),
+                proposal_index,
+                str(proposal.id),
+            )
+        )
+
+        updated = self.proposal_repo.get_by_id(proposal_id)
+        if not updated:
+            raise ValueError("Proposal not found after update")
+        return updated
+
+    @staticmethod
+    async def _run_create_pr(
+        job_id: str,
+        repo_url: str,
+        branch: str,
+        proposal_index: int,
+        proposal_id: str,
+    ) -> None:
+        """Background task: run the PR creation LangGraph workflow."""
+        db = SessionLocal()
+        try:
+            proposal_repo = ProposalRepository(db)
+
+            graph = build_create_pr_graph()
+            result = await graph.ainvoke(
+                {
+                    "job_id": job_id,
+                    "repo_url": repo_url,
+                    "branch": branch,
+                    "proposal_index": proposal_index,
+                    "k8s_job_name": None,
+                    "status": "pending",
+                    "error": None,
+                    "pr_url": None,
+                }
+            )
+
+            if result.get("pr_url"):
+                proposal_repo.update_status(
+                    UUID(proposal_id),
+                    ProposalStatus.COMPLETED,
+                    pr_url=result["pr_url"],
+                    pr_status="created",
+                )
+                logger.info(
+                    "PR created for proposal %d of job %s: %s",
+                    proposal_index,
+                    job_id,
+                    result["pr_url"],
+                )
+            else:
+                error = result.get("error", "PR creation failed")
+                proposal_repo.update_status(
+                    UUID(proposal_id),
+                    ProposalStatus.COMPLETED,
+                    pr_status="failed",
+                    error_message=error,
+                )
+                logger.warning(
+                    "PR creation failed for proposal %d of job %s: %s",
+                    proposal_index,
+                    job_id,
+                    error,
+                )
+
+        except Exception:
+            logger.exception(
+                "PR creation failed for proposal %d of job %s",
+                proposal_index,
+                job_id,
+            )
+            try:
+                proposal_repo.update_status(
+                    UUID(proposal_id),
+                    ProposalStatus.COMPLETED,
+                    pr_status="failed",
+                    error_message="Internal error during PR creation",
+                )
+            except Exception:
+                logger.exception("Failed to update proposal PR status")
+        finally:
+            db.close()

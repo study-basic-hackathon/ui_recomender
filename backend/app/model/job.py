@@ -61,6 +61,8 @@ class Proposal(Base):
     status = Column(Enum(ProposalStatus), nullable=False, default=ProposalStatus.PENDING)
     after_screenshot_path = Column(String(500), nullable=True)
     diff_path = Column(Text, nullable=True)
+    pr_url = Column(String(500), nullable=True)
+    pr_status = Column(String(20), nullable=True)  # creating, created, failed
     k8s_job_name = Column(String(200), nullable=True)
     error_message = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), default=_utcnow)

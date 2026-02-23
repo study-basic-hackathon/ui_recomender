@@ -10,6 +10,8 @@ export interface Proposal {
   complexity: string | null
   status: 'pending' | 'implementing' | 'completed' | 'failed'
   after_screenshot_url: string | null
+  pr_url: string | null
+  pr_status: string | null
   error_message: string | null
   created_at: string
 }
@@ -73,6 +75,14 @@ export async function implementProposals(jobId: string, proposalIndices: number[
     body: JSON.stringify({ proposal_indices: proposalIndices }),
   })
   return handleResponse<Job>(res)
+}
+
+export async function createPR(jobId: string, proposalIndex: number): Promise<Proposal> {
+  const res = await fetch(`${BASE_URL}/jobs/${jobId}/proposals/${proposalIndex}/create-pr`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+  })
+  return handleResponse<Proposal>(res)
 }
 
 export async function getDiff(jobId: string, proposalIndex: number): Promise<string> {

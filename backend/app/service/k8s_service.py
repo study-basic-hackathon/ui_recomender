@@ -162,6 +162,43 @@ class K8sService:
         logger.info("Created implementation K8s Job: %s", job_name)
         return job_name
 
+    def create_pr_job(
+        self,
+        job_id: str,
+        repo_url: str,
+        branch: str,
+        proposal_index: int,
+    ) -> str:
+        """Create a K8s Job for PR creation. Returns the K8s job name."""
+        job_name = f"ui-worker-{job_id[:8]}-pr-{proposal_index}"
+        labels = {
+            "app": "ui-recommender",
+            "component": "worker",
+            "job-id": job_id[:8],
+            "mode": "createpr",
+        }
+        env_vars = [
+            client.V1EnvVar(name="JOB_ID", value=job_id),
+            client.V1EnvVar(name="REPO_URL", value=repo_url),
+            client.V1EnvVar(name="BRANCH", value=branch),
+            client.V1EnvVar(name="PROPOSAL_INDEX", value=str(proposal_index)),
+            client.V1EnvVar(
+                name="GITHUB_TOKEN",
+                value_from=client.V1EnvVarSource(
+                    secret_key_ref=client.V1SecretKeySelector(
+                        name="ui-recommender-secrets",
+                        key="github-token",
+                    )
+                ),
+            ),
+        ]
+        container = self._build_worker_container("createpr", env_vars)
+        job = self._build_job_spec(job_name, labels, container)
+
+        self.batch_v1.create_namespaced_job(namespace=self.namespace, body=job)
+        logger.info("Created PR creation K8s Job: %s", job_name)
+        return job_name
+
     async def wait_for_job(self, job_name: str, timeout: int = 900, poll_interval: int = 5) -> str:
         """Poll K8s Job status until completion. Returns 'succeeded', 'failed', or 'timeout'."""
         elapsed = 0

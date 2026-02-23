@@ -22,6 +22,8 @@ class ProposalResponse(BaseModel):
     complexity: str | None
     status: str
     after_screenshot_url: str | None = None
+    pr_url: str | None = None
+    pr_status: str | None = None
     error_message: str | None = None
     created_at: datetime
 

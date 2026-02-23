@@ -15,7 +15,7 @@ from app.schema.job_schema import (
     ProposalResponse,
 )
 from app.service.artifact_service import ArtifactService
-from app.usecase.job_usecase import CreateJobUseCase, ImplementProposalUseCase
+from app.usecase.job_usecase import CreateJobUseCase, CreatePRUseCase, ImplementProposalUseCase
 
 router = APIRouter(prefix="/api/jobs", tags=["jobs"])
 
@@ -45,6 +45,8 @@ def _to_proposal_response(proposal: Proposal, job_id: UUID) -> ProposalResponse:
             if proposal.after_screenshot_path
             else None
         ),
+        pr_url=proposal.pr_url,
+        pr_status=proposal.pr_status,
         error_message=proposal.error_message,
         created_at=proposal.created_at,
     )
@@ -107,6 +109,20 @@ async def implement_proposals(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     return _to_job_response(job)
+
+
+@router.post("/{job_id}/proposals/{proposal_index}/create-pr", response_model=ProposalResponse)
+async def create_pr(
+    job_id: UUID,
+    proposal_index: int,
+    db: Session = Depends(get_db),
+) -> ProposalResponse:
+    usecase = CreatePRUseCase(db)
+    try:
+        proposal = await usecase.execute(job_id, proposal_index)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return _to_proposal_response(proposal, job_id)
 
 
 @router.get("/{job_id}/screenshot/before")

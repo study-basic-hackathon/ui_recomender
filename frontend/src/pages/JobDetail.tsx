@@ -1,17 +1,71 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { useJobPolling } from '../hooks/useJobPolling'
+import { createPR, getJob } from '../services/api'
 import StatusBadge from '../components/StatusBadge'
 import ProposalCard from '../components/ProposalCard'
 
 export default function JobDetail() {
   const { jobId } = useParams<{ jobId: string }>()
-  const { job, error, isLoading } = useJobPolling(jobId ?? null)
+  const { job, error, isLoading, refetch } = useJobPolling(jobId ?? null)
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null)
+  const [prLoading, setPrLoading] = useState(false)
+  const [prError, setPrError] = useState<string | null>(null)
+  const prPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const toggleProposal = useCallback((index: number) => {
     setSelectedIndex((prev) => (prev === index ? null : index))
   }, [])
+
+  const handleCreatePR = useCallback(async () => {
+    if (selectedIndex === null || !jobId) return
+    setPrLoading(true)
+    setPrError(null)
+    try {
+      await createPR(jobId, selectedIndex)
+      refetch()
+    } catch (e) {
+      setPrError((e as Error).message)
+    } finally {
+      setPrLoading(false)
+    }
+  }, [selectedIndex, jobId, refetch])
+
+  // Poll for PR status changes when a proposal is "creating"
+  useEffect(() => {
+    if (!job || !jobId) return
+
+    const hasCreating = job.proposals.some((p) => p.pr_status === 'creating')
+    if (hasCreating && !prPollRef.current) {
+      prPollRef.current = setInterval(async () => {
+        try {
+          const updated = await getJob(jobId)
+          const stillCreating = updated.proposals.some((p) => p.pr_status === 'creating')
+          if (!stillCreating) {
+            if (prPollRef.current) {
+              clearInterval(prPollRef.current)
+              prPollRef.current = null
+            }
+            refetch()
+          }
+        } catch {
+          // Ignore polling errors
+        }
+      }, 3000)
+    }
+
+    if (!hasCreating && prPollRef.current) {
+      clearInterval(prPollRef.current)
+      prPollRef.current = null
+    }
+
+    return () => {
+      if (prPollRef.current) {
+        clearInterval(prPollRef.current)
+        prPollRef.current = null
+      }
+    }
+  }, [job, jobId, refetch])
 
   if (!jobId) return <p>Invalid job ID</p>
 
@@ -38,6 +92,11 @@ export default function JobDetail() {
   const completedProposals = job.proposals.filter(
     (p) => p.status === 'completed' && p.after_screenshot_url,
   )
+
+  const selectedProposal =
+    selectedIndex !== null
+      ? completedProposals.find((p) => p.proposal_index === selectedIndex)
+      : null
 
   return (
     <div style={{ maxWidth: '1000px', margin: '0 auto', padding: '24px' }}>
@@ -126,6 +185,91 @@ export default function JobDetail() {
                   />
                 ))}
               </div>
+
+              {selectedProposal && (
+                <div style={{ marginTop: '16px', textAlign: 'center' }}>
+                  {selectedProposal.pr_url && (
+                    <a
+                      href={selectedProposal.pr_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{
+                        display: 'inline-block',
+                        padding: '10px 24px',
+                        backgroundColor: '#059669',
+                        color: '#fff',
+                        borderRadius: '6px',
+                        textDecoration: 'none',
+                        fontSize: '14px',
+                        fontWeight: 600,
+                      }}
+                    >
+                      View PR
+                    </a>
+                  )}
+                  {selectedProposal.pr_status === 'creating' && (
+                    <div
+                      style={{
+                        padding: '10px 24px',
+                        backgroundColor: '#f0f9ff',
+                        borderRadius: '6px',
+                        fontSize: '14px',
+                        color: '#1e40af',
+                      }}
+                    >
+                      Creating PR...
+                    </div>
+                  )}
+                  {selectedProposal.pr_status === 'failed' && (
+                    <div>
+                      <p style={{ color: '#dc2626', fontSize: '14px', marginBottom: '8px' }}>
+                        PR creation failed
+                      </p>
+                      <button
+                        onClick={handleCreatePR}
+                        disabled={prLoading}
+                        style={{
+                          padding: '10px 24px',
+                          backgroundColor: '#3b82f6',
+                          color: '#fff',
+                          border: 'none',
+                          borderRadius: '6px',
+                          cursor: prLoading ? 'not-allowed' : 'pointer',
+                          fontSize: '14px',
+                          fontWeight: 600,
+                          opacity: prLoading ? 0.7 : 1,
+                        }}
+                      >
+                        {prLoading ? 'Creating PR...' : 'Retry Create PR'}
+                      </button>
+                    </div>
+                  )}
+                  {!selectedProposal.pr_status && !selectedProposal.pr_url && (
+                    <button
+                      onClick={handleCreatePR}
+                      disabled={prLoading}
+                      style={{
+                        padding: '10px 24px',
+                        backgroundColor: '#3b82f6',
+                        color: '#fff',
+                        border: 'none',
+                        borderRadius: '6px',
+                        cursor: prLoading ? 'not-allowed' : 'pointer',
+                        fontSize: '14px',
+                        fontWeight: 600,
+                        opacity: prLoading ? 0.7 : 1,
+                      }}
+                    >
+                      {prLoading ? 'Creating PR...' : 'Create PR'}
+                    </button>
+                  )}
+                  {prError && (
+                    <p style={{ color: '#dc2626', fontSize: '13px', marginTop: '8px' }}>
+                      {prError}
+                    </p>
+                  )}
+                </div>
+              )}
             </div>
           )}
         </>

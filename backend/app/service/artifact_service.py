@@ -136,6 +136,17 @@ class ArtifactService:
             logger.error("Failed to read diff: %s", e)
             return None
 
+    def get_pr_url(self, job_id: str, proposal_index: int) -> str | None:
+        """Read the PR URL artifact for a proposal."""
+        path = self.base_dir / job_id / "proposals" / str(proposal_index) / "pr_url.txt"
+        if not path.exists():
+            return None
+        try:
+            return path.read_text().strip()
+        except OSError as e:
+            logger.error("Failed to read PR URL: %s", e)
+            return None
+
     def write_proposal_plan(self, job_id: str, proposal_index: int, plan_text: str) -> Path:
         """Write proposal plan to a file (used for local reference)."""
         path = self.base_dir / job_id / f"proposal_{proposal_index}_plan.txt"

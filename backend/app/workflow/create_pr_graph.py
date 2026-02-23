@@ -48,9 +48,7 @@ async def extract_results(state: CreatePRState) -> dict:
     assert k8s_job_name is not None
     logs = k8s.get_job_logs(k8s_job_name)
     if logs:
-        artifacts.extract_impl_artifacts_from_logs(
-            state["job_id"], state["proposal_index"], logs
-        )
+        artifacts.extract_impl_artifacts_from_logs(state["job_id"], state["proposal_index"], logs)
 
     pr_url = artifacts.get_pr_url(state["job_id"], state["proposal_index"])
     return {"pr_url": pr_url}

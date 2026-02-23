@@ -308,9 +308,7 @@ class CreatePRUseCase:
             raise ValueError("PR creation already in progress")
 
         proposal_id = UUID(str(proposal.id))
-        self.proposal_repo.update_status(
-            proposal_id, proposal.status, pr_status="creating"
-        )
+        self.proposal_repo.update_status(proposal_id, proposal.status, pr_status="creating")
 
         asyncio.create_task(
             self._run_create_pr(

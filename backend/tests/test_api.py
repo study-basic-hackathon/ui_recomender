@@ -113,9 +113,7 @@ class TestCreateJob:
         # Mock the asyncio.create_task to avoid launching background analysis
         import app.usecase.job_usecase as usecase_mod
 
-        monkeypatch.setattr(
-            usecase_mod.asyncio, "create_task", lambda coro: coro.close()
-        )
+        monkeypatch.setattr(usecase_mod.asyncio, "create_task", lambda coro: coro.close())
 
         response = client.post(
             "/api/jobs/",
@@ -166,9 +164,7 @@ class TestSettingsAPI:
         assert isinstance(response.json(), list)
 
     def test_create_and_list_setting(self, client):
-        response = client.post(
-            "/api/settings/", json={"key": "max_proposals", "value": "5"}
-        )
+        response = client.post("/api/settings/", json={"key": "max_proposals", "value": "5"})
         assert response.status_code == 200
         data = response.json()
         assert data["key"] == "max_proposals"
@@ -181,8 +177,6 @@ class TestSettingsAPI:
 
     def test_update_setting(self, client):
         client.post("/api/settings/", json={"key": "theme", "value": "dark"})
-        response = client.post(
-            "/api/settings/", json={"key": "theme", "value": "light"}
-        )
+        response = client.post("/api/settings/", json={"key": "theme", "value": "light"})
         assert response.status_code == 200
         assert response.json()["value"] == "light"

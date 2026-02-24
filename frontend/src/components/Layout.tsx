@@ -32,25 +32,33 @@ export default function Layout() {
           minHeight: '100vh',
         }}
       >
-        {!sidebarOpen && (
-          <button
-            onClick={() => setSidebarOpen(true)}
-            style={{
-              position: 'fixed',
-              top: '12px',
-              left: '12px',
-              zIndex: 101,
-              background: 'none',
-              border: 'none',
-              cursor: 'pointer',
-              padding: '6px',
-              display: 'flex',
-              alignItems: 'center',
-            }}
-          >
-            <span style={{ fontSize: '30px', color: '#9ca3af' }}>☰</span>
-          </button>
-        )}
+        <div
+          style={{
+            padding: '12px 16px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '12px',
+          }}
+        >
+          {!sidebarOpen && (
+            <button
+              onClick={() => setSidebarOpen(true)}
+              style={{
+                background: 'none',
+                border: 'none',
+                cursor: 'pointer',
+                padding: '6px',
+                display: 'flex',
+                alignItems: 'center',
+              }}
+            >
+              <span style={{ fontSize: '30px', color: '#9ca3af' }}>☰</span>
+            </button>
+          )}
+          <span style={{ fontSize: '26px', fontWeight: 600, color: 'rgba(255,255,255,0.87)' }}>
+            UI Recommender
+          </span>
+        </div>
         <Outlet context={{ refreshJobs } satisfies LayoutContext} />
       </div>
     </div>

@@ -47,8 +47,6 @@ export default function Dashboard() {
 
   return (
     <div style={{ maxWidth: '800px', margin: '0 auto', padding: '24px' }}>
-      <h1 style={{ fontSize: '24px', marginBottom: '24px' }}>UI Recommender</h1>
-
       {settingsLoaded && (
         <div
           style={{
@@ -80,11 +78,17 @@ export default function Dashboard() {
 
       <form onSubmit={handleSubmit}>
         <div style={{ marginBottom: '16px' }}>
-          <label
-            style={{ display: 'block', marginBottom: '4px', fontSize: '16px', fontWeight: 600 }}
+          <h2
+            style={{
+              fontSize: '36px',
+              fontWeight: 600,
+              marginTop: '80px',
+              marginBottom: '50px',
+              textAlign: 'center',
+            }}
           >
-            UI Change Instruction
-          </label>
+            どのようなデザインにしたいですか？
+          </h2>
           <textarea
             value={instruction}
             onChange={(e) => setInstruction(e.target.value)}
@@ -104,6 +108,11 @@ export default function Dashboard() {
             }}
           />
         </div>
+
+        <p style={{ fontSize: '12px', color: '#9ca3af', marginBottom: '16px' }}>
+          あなたは AI によって実装・提案されたデザイン中から選択するだけです。 選択後、AI
+          は修正を理解して PR を自動作成します。
+        </p>
 
         {submitError && (
           <p style={{ color: '#f87171', fontSize: '16px', marginBottom: '12px' }}>{submitError}</p>

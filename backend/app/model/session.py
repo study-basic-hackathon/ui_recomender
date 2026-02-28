@@ -3,7 +3,6 @@ import uuid
 from datetime import UTC, datetime
 
 from sqlalchemy import (
-    Column,
     DateTime,
     Enum,
     ForeignKey,
@@ -13,7 +12,7 @@ from sqlalchemy import (
     UniqueConstraint,
     Uuid,
 )
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.model.base import Base
 
@@ -47,14 +46,19 @@ def _utcnow() -> datetime:
 class Session(Base):
     __tablename__ = "sessions"
 
-    id = Column(Uuid, primary_key=True, default=uuid.uuid4)
-    repo_url = Column(String(500), nullable=False)
-    base_branch = Column(String(200), nullable=False, default="main")
-    status = Column(Enum(SessionStatus, values_callable=lambda x: [e.value for e in x]), nullable=False, default=SessionStatus.ACTIVE)
-    created_at = Column(DateTime(timezone=True), default=_utcnow)
-    updated_at = Column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow)
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    repo_url: Mapped[str] = mapped_column(String(500))
+    base_branch: Mapped[str] = mapped_column(String(200), default="main")
+    status: Mapped[SessionStatus] = mapped_column(
+        Enum(SessionStatus, values_callable=lambda x: [e.value for e in x]),
+        default=SessionStatus.ACTIVE,
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, onupdate=_utcnow
+    )
 
-    iterations: list["Iteration"] = relationship(
+    iterations: Mapped[list["Iteration"]] = relationship(
         "Iteration",
         back_populates="session",
         cascade="all, delete-orphan",
@@ -68,23 +72,28 @@ class Iteration(Base):
         UniqueConstraint("session_id", "iteration_index", name="uq_iteration_session_index"),
     )
 
-    id = Column(Uuid, primary_key=True, default=uuid.uuid4)
-    session_id = Column(Uuid, ForeignKey("sessions.id", ondelete="CASCADE"), nullable=False)
-    iteration_index = Column(Integer, nullable=False)
-    instruction = Column(Text, nullable=False)
-    selected_proposal_index = Column(Integer, nullable=True)
-    status = Column(
-        Enum(IterationStatus, values_callable=lambda x: [e.value for e in x]), nullable=False, default=IterationStatus.PENDING
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    session_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("sessions.id", ondelete="CASCADE"),
     )
-    before_screenshot_key = Column(String(500), nullable=True)
-    error_message = Column(Text, nullable=True)
-    k8s_analyzer_job_name = Column(String(200), nullable=True)
-    version = Column(Integer, nullable=False, default=1)
-    created_at = Column(DateTime(timezone=True), default=_utcnow)
-    updated_at = Column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow)
+    iteration_index: Mapped[int] = mapped_column(Integer)
+    instruction: Mapped[str] = mapped_column(Text)
+    selected_proposal_index: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    status: Mapped[IterationStatus] = mapped_column(
+        Enum(IterationStatus, values_callable=lambda x: [e.value for e in x]),
+        default=IterationStatus.PENDING,
+    )
+    before_screenshot_key: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    k8s_analyzer_job_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    version: Mapped[int] = mapped_column(Integer, default=1)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, onupdate=_utcnow
+    )
 
-    session: "Session" = relationship("Session", back_populates="iterations")
-    proposals: list["Proposal"] = relationship(
+    session: Mapped["Session"] = relationship("Session", back_populates="iterations")
+    proposals: Mapped[list["Proposal"]] = relationship(
         "Proposal",
         back_populates="iteration",
         cascade="all, delete-orphan",
@@ -98,34 +107,41 @@ class Proposal(Base):
         UniqueConstraint("iteration_id", "proposal_index", name="uq_proposal_iteration_index"),
     )
 
-    id = Column(Uuid, primary_key=True, default=uuid.uuid4)
-    iteration_id = Column(
-        Uuid, ForeignKey("iterations.id", ondelete="CASCADE"), nullable=False
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    iteration_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("iterations.id", ondelete="CASCADE"),
     )
-    proposal_index = Column(Integer, nullable=False)
-    title = Column(String(200), nullable=False)
-    concept = Column(Text, nullable=False)
-    plan = Column(Text, nullable=False)
-    files = Column(Text, nullable=True)
-    complexity = Column(String(20), nullable=True)
-    status = Column(
-        Enum(ProposalStatus, name="proposalstatus", values_callable=lambda x: [e.value for e in x]), nullable=False, default=ProposalStatus.PENDING
+    proposal_index: Mapped[int] = mapped_column(Integer)
+    title: Mapped[str] = mapped_column(String(200))
+    concept: Mapped[str] = mapped_column(Text)
+    plan: Mapped[str] = mapped_column(Text)
+    files: Mapped[str | None] = mapped_column(Text, nullable=True)
+    complexity: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    status: Mapped[ProposalStatus] = mapped_column(
+        Enum(
+            ProposalStatus,
+            name="proposalstatus",
+            values_callable=lambda x: [e.value for e in x],
+        ),
+        default=ProposalStatus.PENDING,
     )
-    after_screenshot_key = Column(String(500), nullable=True)
-    diff_key = Column(Text, nullable=True)
-    pr_url = Column(String(500), nullable=True)
-    pr_status = Column(String(20), nullable=True)
-    k8s_job_name = Column(String(200), nullable=True)
-    error_message = Column(Text, nullable=True)
-    version = Column(Integer, nullable=False, default=1)
-    created_at = Column(DateTime(timezone=True), default=_utcnow)
+    after_screenshot_key: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    diff_key: Mapped[str | None] = mapped_column(Text, nullable=True)
+    pr_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    pr_status: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    k8s_job_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    version: Mapped[int] = mapped_column(Integer, default=1)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
-    iteration: "Iteration" = relationship("Iteration", back_populates="proposals")
+    iteration: Mapped["Iteration"] = relationship("Iteration", back_populates="proposals")
 
 
 class Setting(Base):
     __tablename__ = "settings"
 
-    key = Column(String(100), primary_key=True)
-    value = Column(Text, nullable=False)
-    updated_at = Column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow)
+    key: Mapped[str] = mapped_column(String(100), primary_key=True)
+    value: Mapped[str] = mapped_column(Text)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, onupdate=_utcnow
+    )

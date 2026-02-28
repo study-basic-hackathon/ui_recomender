@@ -18,9 +18,7 @@ class IterationRepository:
     def get_by_id(self, iteration_id: UUID) -> Iteration | None:
         return self.db.query(Iteration).filter(Iteration.id == iteration_id).first()
 
-    def get_by_session_and_index(
-        self, session_id: UUID, iteration_index: int
-    ) -> Iteration | None:
+    def get_by_session_and_index(self, session_id: UUID, iteration_index: int) -> Iteration | None:
         return (
             self.db.query(Iteration)
             .filter(
@@ -75,9 +73,7 @@ class IterationRepository:
         self.db.commit()
         return self.get_by_id(iteration_id)
 
-    def update_selected_proposal(
-        self, iteration_id: UUID, proposal_index: int
-    ) -> Iteration | None:
+    def update_selected_proposal(self, iteration_id: UUID, proposal_index: int) -> Iteration | None:
         iteration = self.get_by_id(iteration_id)
         if iteration:
             iteration.selected_proposal_index = proposal_index

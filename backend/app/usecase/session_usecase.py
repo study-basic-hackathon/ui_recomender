@@ -100,9 +100,7 @@ class IterateUseCase:
             raise ValueError(f"Previous iteration is not completed: {latest.status}")
 
         # Validate the selected proposal exists and is completed
-        proposal = self.proposal_repo.get_by_iteration_and_index(
-            latest.id, selected_proposal_index
-        )
+        proposal = self.proposal_repo.get_by_iteration_and_index(latest.id, selected_proposal_index)
         if not proposal:
             raise ValueError(f"Proposal {selected_proposal_index} not found")
         if proposal.status != ProposalStatus.COMPLETED:
@@ -110,9 +108,7 @@ class IterateUseCase:
 
         # Verify the patch exists in S3
         s3 = S3Service()
-        diff_k = s3.diff_key(
-            str(session_id), latest.iteration_index, selected_proposal_index
-        )
+        diff_k = s3.diff_key(str(session_id), latest.iteration_index, selected_proposal_index)
         if not s3.exists(diff_k):
             raise ValueError("No patch file found for the selected proposal")
 
@@ -136,7 +132,7 @@ class IterateUseCase:
             if existing:
                 session = self.session_repo.get_by_id(session_id)
                 if not session:
-                    raise ValueError("Session not found")
+                    raise ValueError("Session not found") from None
                 return session
             raise
 
@@ -175,15 +171,11 @@ class CreateSessionPRUseCase:
         if not session:
             raise ValueError("Session not found")
 
-        iteration = self.iteration_repo.get_by_session_and_index(
-            session_id, iteration_index
-        )
+        iteration = self.iteration_repo.get_by_session_and_index(session_id, iteration_index)
         if not iteration:
             raise ValueError(f"Iteration {iteration_index} not found")
 
-        proposal = self.proposal_repo.get_by_iteration_and_index(
-            iteration.id, proposal_index
-        )
+        proposal = self.proposal_repo.get_by_iteration_and_index(iteration.id, proposal_index)
         if not proposal:
             raise ValueError(f"Proposal {proposal_index} not found")
         if proposal.status != ProposalStatus.COMPLETED:
@@ -327,7 +319,9 @@ async def _run_session_analysis(
                     IterationStatus.FAILED,
                     error_message=error,
                 )
-            logger.warning("Session %s iter %d analysis failed: %s", session_id, iteration_index, error)
+            logger.warning(
+                "Session %s iter %d analysis failed: %s", session_id, iteration_index, error
+            )
 
     except Exception:
         logger.exception("Session %s iter %d analysis failed", session_id, iteration_index)
@@ -361,7 +355,6 @@ async def _run_session_implementation(
     db = SessionLocal()
     try:
         proposal_repo = ProposalRepository(db)
-        iter_repo = IterationRepository(db)
 
         proposal = proposal_repo.get_by_id(UUID(proposal_id))
         if not proposal:
@@ -554,7 +547,9 @@ async def recover_stuck_proposals() -> None:
                 recovered += 1
                 logger.info(
                     "Recovered proposal %s (iter%d/prop%d)",
-                    proposal.id, iter_idx, prop_idx,
+                    proposal.id,
+                    iter_idx,
+                    prop_idx,
                 )
 
         # Check iteration completion for affected iterations
@@ -580,9 +575,7 @@ def _check_iteration_completion(db: DbSession, iteration_id: UUID) -> None:
     if not proposals:
         return
 
-    all_done = all(
-        p.status in (ProposalStatus.COMPLETED, ProposalStatus.FAILED) for p in proposals
-    )
+    all_done = all(p.status in (ProposalStatus.COMPLETED, ProposalStatus.FAILED) for p in proposals)
     if all_done:
         any_succeeded = any(p.status == ProposalStatus.COMPLETED for p in proposals)
         new_status = IterationStatus.COMPLETED if any_succeeded else IterationStatus.FAILED

@@ -11,7 +11,6 @@ from app.model.session import (
     Proposal,
     ProposalStatus,
     Session,
-    SessionStatus,
 )
 from app.repository.iteration_repository import IterationRepository
 from app.repository.proposal_repository import ProposalRepository

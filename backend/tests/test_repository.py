@@ -47,9 +47,7 @@ class TestSessionRepository:
 class TestIterationRepository:
     def _create_session(self, db) -> Session:
         repo = SessionRepository(db)
-        return repo.create(
-            Session(repo_url="https://github.com/test/repo", base_branch="main")
-        )
+        return repo.create(Session(repo_url="https://github.com/test/repo", base_branch="main"))
 
     def test_create_and_get(self, db):
         session = self._create_session(db)
@@ -72,12 +70,8 @@ class TestIterationRepository:
     def test_get_latest_for_session(self, db):
         session = self._create_session(db)
         repo = IterationRepository(db)
-        repo.create(
-            Iteration(session_id=session.id, iteration_index=0, instruction="First")
-        )
-        repo.create(
-            Iteration(session_id=session.id, iteration_index=1, instruction="Second")
-        )
+        repo.create(Iteration(session_id=session.id, iteration_index=0, instruction="First"))
+        repo.create(Iteration(session_id=session.id, iteration_index=1, instruction="Second"))
 
         latest = repo.get_latest_for_session(session.id)
         assert latest is not None
@@ -93,9 +87,7 @@ class TestProposalRepository:
         )
         iter_repo = IterationRepository(db)
         return iter_repo.create(
-            Iteration(
-                session_id=session.id, iteration_index=0, instruction="Test"
-            )
+            Iteration(session_id=session.id, iteration_index=0, instruction="Test")
         )
 
     def test_create_and_get(self, db):

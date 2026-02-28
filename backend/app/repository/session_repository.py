@@ -18,9 +18,7 @@ class SessionRepository:
     def get_by_id(self, session_id: UUID) -> Session | None:
         return self.db.query(Session).filter(Session.id == session_id).first()
 
-    def update_status(
-        self, session_id: UUID, status: SessionStatus
-    ) -> Session | None:
+    def update_status(self, session_id: UUID, status: SessionStatus) -> Session | None:
         session = self.get_by_id(session_id)
         if session:
             session.status = status

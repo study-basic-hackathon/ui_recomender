@@ -62,12 +62,9 @@ def _to_proposal_response(
     )
 
 
-def _to_iteration_response(
-    iteration: Iteration, session_id: UUID
-) -> IterationResponse:
+def _to_iteration_response(iteration: Iteration, session_id: UUID) -> IterationResponse:
     proposals = [
-        _to_proposal_response(p, session_id, iteration.iteration_index)
-        for p in iteration.proposals
+        _to_proposal_response(p, session_id, iteration.iteration_index) for p in iteration.proposals
     ]
     return IterationResponse(
         id=iteration.id,
@@ -125,9 +122,7 @@ async def list_sessions(db: Session = Depends(get_db)) -> list[SessionResponse]:
 
 
 @router.get("/{session_id}", response_model=SessionResponse)
-async def get_session(
-    session_id: UUID, db: Session = Depends(get_db)
-) -> SessionResponse:
+async def get_session(session_id: UUID, db: Session = Depends(get_db)) -> SessionResponse:
     from app.repository.session_repository import SessionRepository
 
     repo = SessionRepository(db)
@@ -181,9 +176,7 @@ async def get_before_screenshot(
     return StreamingResponse(BytesIO(data), media_type="image/png")
 
 
-@router.get(
-    "/{session_id}/iterations/{iter_index}/proposals/{prop_index}/screenshot"
-)
+@router.get("/{session_id}/iterations/{iter_index}/proposals/{prop_index}/screenshot")
 async def get_after_screenshot(
     session_id: UUID,
     iter_index: int,

@@ -16,9 +16,7 @@ async def create_k8s_job(state: SessionImplementationState) -> dict:
     s3 = S3Service()
 
     # Write proposal plan to S3 for the worker to read
-    plan_key = s3.plan_key(
-        state["session_id"], state["iteration_index"], state["proposal_index"]
-    )
+    plan_key = s3.plan_key(state["session_id"], state["iteration_index"], state["proposal_index"])
     s3.upload_text(plan_key, state["proposal_plan"])
 
     job_name = k8s.create_session_implementation_job(

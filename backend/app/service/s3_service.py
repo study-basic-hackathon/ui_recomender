@@ -48,35 +48,31 @@ class S3Service:
         return f"sessions/{session_id}/iterations/{iteration_index}/proposals.json"
 
     @staticmethod
-    def after_screenshot_key(
-        session_id: str, iteration_index: int, proposal_index: int
-    ) -> str:
-        return f"sessions/{session_id}/iterations/{iteration_index}/proposals/{proposal_index}/after.png"
+    def after_screenshot_key(session_id: str, iteration_index: int, proposal_index: int) -> str:
+        base = f"sessions/{session_id}/iterations/{iteration_index}"
+        return f"{base}/proposals/{proposal_index}/after.png"
 
     @staticmethod
-    def diff_key(
-        session_id: str, iteration_index: int, proposal_index: int
-    ) -> str:
-        return f"sessions/{session_id}/iterations/{iteration_index}/proposals/{proposal_index}/changes.diff"
+    def diff_key(session_id: str, iteration_index: int, proposal_index: int) -> str:
+        base = f"sessions/{session_id}/iterations/{iteration_index}"
+        return f"{base}/proposals/{proposal_index}/changes.diff"
 
     @staticmethod
-    def plan_key(
-        session_id: str, iteration_index: int, proposal_index: int
-    ) -> str:
-        return f"sessions/{session_id}/iterations/{iteration_index}/proposals/{proposal_index}/plan.json"
+    def plan_key(session_id: str, iteration_index: int, proposal_index: int) -> str:
+        base = f"sessions/{session_id}/iterations/{iteration_index}"
+        return f"{base}/proposals/{proposal_index}/plan.json"
 
     @staticmethod
-    def pr_url_key(
-        session_id: str, iteration_index: int, proposal_index: int
-    ) -> str:
-        return f"sessions/{session_id}/iterations/{iteration_index}/proposals/{proposal_index}/pr_url.txt"
+    def pr_url_key(session_id: str, iteration_index: int, proposal_index: int) -> str:
+        base = f"sessions/{session_id}/iterations/{iteration_index}"
+        return f"{base}/proposals/{proposal_index}/pr_url.txt"
 
     # ── Read / Write ──
 
-    def upload_bytes(self, key: str, data: bytes, content_type: str = "application/octet-stream") -> None:
-        self.client.put_object(
-            Bucket=self.bucket, Key=key, Body=data, ContentType=content_type
-        )
+    def upload_bytes(
+        self, key: str, data: bytes, content_type: str = "application/octet-stream"
+    ) -> None:
+        self.client.put_object(Bucket=self.bucket, Key=key, Body=data, ContentType=content_type)
         logger.info("Uploaded %s (%d bytes)", key, len(data))
 
     def upload_text(self, key: str, text: str) -> None:
@@ -84,13 +80,16 @@ class S3Service:
 
     def upload_json(self, key: str, obj: Any) -> None:
         self.upload_bytes(
-            key, json.dumps(obj, ensure_ascii=False).encode("utf-8"), content_type="application/json"
+            key,
+            json.dumps(obj, ensure_ascii=False).encode("utf-8"),
+            content_type="application/json",
         )
 
     def download_bytes(self, key: str) -> bytes | None:
         try:
             resp = self.client.get_object(Bucket=self.bucket, Key=key)
-            return resp["Body"].read()
+            body: bytes = resp["Body"].read()
+            return body
         except ClientError as e:
             if e.response["Error"]["Code"] == "NoSuchKey":
                 return None
@@ -116,37 +115,31 @@ class S3Service:
     def generate_presigned_url(self, key: str, expires_in: int = 3600) -> str | None:
         """Generate a presigned URL for direct access (optional future use)."""
         try:
-            return self.client.generate_presigned_url(
+            url: str = self.client.generate_presigned_url(
                 "get_object",
                 Params={"Bucket": self.bucket, "Key": key},
                 ExpiresIn=expires_in,
             )
+            return url
         except ClientError:
             return None
 
     # ── High-level artifact accessors ──
 
-    def get_proposals(self, session_id: str, iteration_index: int) -> list[dict] | None:
+    def get_proposals(self, session_id: str, iteration_index: int) -> list[dict[str, Any]] | None:
         data = self.download_json(self.proposals_json_key(session_id, iteration_index))
         if isinstance(data, dict) and "proposals" in data:
-            return data["proposals"]
+            result: list[dict[str, Any]] = data["proposals"]
+            return result
         if isinstance(data, list):
             return data
         return None
 
-    def get_diff(
-        self, session_id: str, iteration_index: int, proposal_index: int
-    ) -> str | None:
-        return self.download_text(
-            self.diff_key(session_id, iteration_index, proposal_index)
-        )
+    def get_diff(self, session_id: str, iteration_index: int, proposal_index: int) -> str | None:
+        return self.download_text(self.diff_key(session_id, iteration_index, proposal_index))
 
-    def get_before_screenshot(
-        self, session_id: str, iteration_index: int
-    ) -> bytes | None:
-        return self.download_bytes(
-            self.before_screenshot_key(session_id, iteration_index)
-        )
+    def get_before_screenshot(self, session_id: str, iteration_index: int) -> bytes | None:
+        return self.download_bytes(self.before_screenshot_key(session_id, iteration_index))
 
     def get_after_screenshot(
         self, session_id: str, iteration_index: int, proposal_index: int

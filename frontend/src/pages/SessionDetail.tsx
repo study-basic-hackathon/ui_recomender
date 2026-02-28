@@ -128,13 +128,12 @@ export default function SessionDetail() {
   const iterationStatus = latestIteration?.status ?? 'pending'
   const isInProgress = ['pending', 'analyzing', 'implementing'].includes(iterationStatus)
   const completedProposals =
-    latestIteration?.proposals.filter(
-      (p) => p.status === 'completed' && p.after_screenshot_url,
-    ) ?? []
+    latestIteration?.proposals.filter((p) => p.status === 'completed' && p.after_screenshot_url) ??
+    []
 
   const selectedProposal: Proposal | null =
     selectedIndex !== null
-      ? completedProposals.find((p) => p.proposal_index === selectedIndex) ?? null
+      ? (completedProposals.find((p) => p.proposal_index === selectedIndex) ?? null)
       : null
 
   return (
@@ -165,8 +164,7 @@ export default function SessionDetail() {
                   padding: '6px 12px',
                   borderRadius: '6px',
                   fontSize: '13px',
-                  backgroundColor:
-                    idx === session.iterations.length - 1 ? '#374151' : '#1f2937',
+                  backgroundColor: idx === session.iterations.length - 1 ? '#374151' : '#1f2937',
                   border:
                     idx === session.iterations.length - 1
                       ? '1px solid #60a5fa'
@@ -426,9 +424,7 @@ export default function SessionDetail() {
                           marginTop: '8px',
                           padding: '10px 24px',
                           backgroundColor:
-                            continueLoading || !continueInstruction.trim()
-                              ? '#4b5563'
-                              : '#7c3aed',
+                            continueLoading || !continueInstruction.trim() ? '#4b5563' : '#7c3aed',
                           color: '#fff',
                           border: 'none',
                           borderRadius: '6px',

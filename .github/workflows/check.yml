@@ -97,6 +97,13 @@ jobs:
     defaults:
       run:
         working-directory: backend
+    env:
+      ENVIRONMENT: development
+      POSTGRES_SERVER: localhost
+      POSTGRES_USER: test
+      POSTGRES_PASSWORD: test
+      POSTGRES_DB: test
+      POSTGRES_PORT: "5432"
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5

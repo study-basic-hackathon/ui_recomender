@@ -109,8 +109,11 @@ class S3Service:
         try:
             self.client.head_object(Bucket=self.bucket, Key=key)
             return True
-        except ClientError:
-            return False
+        except ClientError as e:
+            code = e.response.get("Error", {}).get("Code", "")
+            if code in ("404", "NoSuchKey", "NotFound"):
+                return False
+            raise
 
     def generate_presigned_url(self, key: str, expires_in: int = 3600) -> str | None:
         """Generate a presigned URL for direct access (optional future use)."""

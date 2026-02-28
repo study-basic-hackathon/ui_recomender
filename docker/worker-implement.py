@@ -235,6 +235,7 @@ async def main() -> None:
     patch_result = subprocess.run(
         ["git", "format-patch", "-1", "HEAD", "--stdout"],
         capture_output=True, text=True, cwd=repo_dir,
+        check=True,
     )
     local_diff = f"{tmp_dir}/changes.diff"
     with open(local_diff, "w") as f:

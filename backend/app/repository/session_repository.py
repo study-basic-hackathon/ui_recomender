@@ -1,6 +1,7 @@
 from uuid import UUID
 
-from sqlalchemy.orm import Session as DbSession, selectinload
+from sqlalchemy.orm import Session as DbSession
+from sqlalchemy.orm import selectinload
 
 from app.model.session import Iteration, Session, SessionStatus
 

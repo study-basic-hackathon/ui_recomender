@@ -5,7 +5,8 @@ from sqlalchemy import create_engine, event
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.model.base import Base
-from app.model.job import Job, Proposal, Setting  # noqa: F401 (register models)
+from app.model.session import Iteration, Proposal, Setting  # noqa: F401 (register models)
+from app.model.session import Session as SessionModel  # noqa: F401
 
 
 @pytest.fixture(scope="session")

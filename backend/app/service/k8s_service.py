@@ -259,6 +259,206 @@ class K8sService:
             logger.error("Error getting logs for K8s Job %s: %s", job_name, e)
         return None
 
+    # ── Session-based methods (S3 artifacts, no hostPath) ──
+
+    def _build_s3_env_vars(self) -> list[client.V1EnvVar]:
+        """Build S3-related env vars for session-based workers."""
+        settings = get_settings()
+        env = [
+            client.V1EnvVar(name="S3_BUCKET", value=settings.S3_BUCKET),
+            client.V1EnvVar(name="S3_REGION", value=settings.S3_REGION),
+        ]
+        endpoint = settings.S3_ENDPOINT_URL_K8S or settings.S3_ENDPOINT_URL
+        if endpoint:
+            env.append(client.V1EnvVar(name="S3_ENDPOINT_URL", value=endpoint))
+            env.append(client.V1EnvVar(name="S3_ACCESS_KEY", value=settings.S3_ACCESS_KEY))
+            env.append(client.V1EnvVar(name="S3_SECRET_KEY", value=settings.S3_SECRET_KEY))
+        return env
+
+    def _build_session_worker_container(
+        self, mode: str, env_vars: list[client.V1EnvVar]
+    ) -> client.V1Container:
+        """Build a session-based worker container (no hostPath artifacts volume)."""
+        base_env = [
+            client.V1EnvVar(name="WORKER_MODE", value=mode),
+            client.V1EnvVar(
+                name="ANTHROPIC_API_KEY",
+                value_from=client.V1EnvVarSource(
+                    secret_key_ref=client.V1SecretKeySelector(
+                        name="ui-recommender-secrets",
+                        key="anthropic-api-key",
+                    )
+                ),
+            ),
+            client.V1EnvVar(name="TERM", value="dumb"),
+        ] + self._build_s3_env_vars()
+        return client.V1Container(
+            name="worker",
+            image=self.worker_image,
+            image_pull_policy="Never",
+            env=base_env + env_vars,
+            resources=client.V1ResourceRequirements(
+                requests={"memory": "1Gi", "cpu": "1000m"},
+                limits={"memory": "4Gi", "cpu": "4000m"},
+            ),
+            volume_mounts=[
+                client.V1VolumeMount(name="workspace", mount_path="/workspace"),
+            ],
+        )
+
+    def _build_session_job_spec(
+        self,
+        job_name: str,
+        labels: dict[str, str],
+        container: client.V1Container,
+    ) -> client.V1Job:
+        """Build a K8s Job spec without hostPath artifacts volume."""
+        template = client.V1PodTemplateSpec(
+            metadata=client.V1ObjectMeta(labels=labels),
+            spec=client.V1PodSpec(
+                restart_policy="Never",
+                containers=[container],
+                volumes=[
+                    client.V1Volume(
+                        name="workspace",
+                        empty_dir=client.V1EmptyDirVolumeSource(),
+                    ),
+                ],
+            ),
+        )
+        return client.V1Job(
+            api_version="batch/v1",
+            kind="Job",
+            metadata=client.V1ObjectMeta(name=job_name, labels=labels),
+            spec=client.V1JobSpec(
+                template=template,
+                backoff_limit=1,
+                ttl_seconds_after_finished=1800,
+                active_deadline_seconds=self.worker_deadline_seconds,
+            ),
+        )
+
+    def _create_job_idempotent(self, job_name: str, job: client.V1Job) -> None:
+        """Create a K8s Job, handling 409 AlreadyExists gracefully."""
+        try:
+            self.batch_v1.create_namespaced_job(namespace=self.namespace, body=job)
+            logger.info("Created K8s Job: %s", job_name)
+        except ApiException as e:
+            if e.status == 409:
+                logger.info("K8s Job %s already exists, re-attaching", job_name)
+            else:
+                raise
+
+    def create_session_analyzer_job(
+        self,
+        session_id: str,
+        iteration_index: int,
+        repo_url: str,
+        branch: str,
+        instruction: str,
+        num_proposals: int,
+        selected_proposal_index: int | None = None,
+    ) -> str:
+        """Create a K8s Job for session-based analysis."""
+        job_name = f"ui-worker-{session_id[:12]}-iter{iteration_index}-analyze"
+        labels = {
+            "app": "ui-recommender",
+            "component": "worker",
+            "session-id": session_id[:12],
+            "iteration": str(iteration_index),
+            "mode": "analyze",
+        }
+        env_vars = [
+            client.V1EnvVar(name="SESSION_ID", value=session_id),
+            client.V1EnvVar(name="ITERATION_INDEX", value=str(iteration_index)),
+            client.V1EnvVar(name="REPO_URL", value=repo_url),
+            client.V1EnvVar(name="BRANCH", value=branch),
+            client.V1EnvVar(name="INSTRUCTION", value=instruction),
+            client.V1EnvVar(name="NUM_PROPOSALS", value=str(num_proposals)),
+        ]
+        if selected_proposal_index is not None:
+            env_vars.append(
+                client.V1EnvVar(name="SELECTED_PROPOSAL_INDEX", value=str(selected_proposal_index))
+            )
+        container = self._build_session_worker_container("analyze", env_vars)
+        job = self._build_session_job_spec(job_name, labels, container)
+        self._create_job_idempotent(job_name, job)
+        return job_name
+
+    def create_session_implementation_job(
+        self,
+        session_id: str,
+        iteration_index: int,
+        repo_url: str,
+        branch: str,
+        proposal_index: int,
+        proposal_plan: str,
+        selected_proposal_index: int | None = None,
+    ) -> str:
+        """Create a K8s Job for session-based implementation."""
+        job_name = f"ui-worker-{session_id[:12]}-iter{iteration_index}-impl-{proposal_index}"
+        labels = {
+            "app": "ui-recommender",
+            "component": "worker",
+            "session-id": session_id[:12],
+            "iteration": str(iteration_index),
+            "mode": "implement",
+        }
+        env_vars = [
+            client.V1EnvVar(name="SESSION_ID", value=session_id),
+            client.V1EnvVar(name="ITERATION_INDEX", value=str(iteration_index)),
+            client.V1EnvVar(name="REPO_URL", value=repo_url),
+            client.V1EnvVar(name="BRANCH", value=branch),
+            client.V1EnvVar(name="PROPOSAL_INDEX", value=str(proposal_index)),
+            client.V1EnvVar(name="PROPOSAL_PLAN", value=proposal_plan),
+        ]
+        if selected_proposal_index is not None:
+            env_vars.append(
+                client.V1EnvVar(name="SELECTED_PROPOSAL_INDEX", value=str(selected_proposal_index))
+            )
+        container = self._build_session_worker_container("implement", env_vars)
+        job = self._build_session_job_spec(job_name, labels, container)
+        self._create_job_idempotent(job_name, job)
+        return job_name
+
+    def create_session_pr_job(
+        self,
+        session_id: str,
+        iteration_index: int,
+        repo_url: str,
+        branch: str,
+        proposal_index: int,
+    ) -> str:
+        """Create a K8s Job for session-based PR creation."""
+        job_name = f"ui-worker-{session_id[:12]}-iter{iteration_index}-pr-{proposal_index}"
+        labels = {
+            "app": "ui-recommender",
+            "component": "worker",
+            "session-id": session_id[:12],
+            "iteration": str(iteration_index),
+            "mode": "createpr",
+        }
+        env_vars = [
+            client.V1EnvVar(name="SESSION_ID", value=session_id),
+            client.V1EnvVar(name="ITERATION_INDEX", value=str(iteration_index)),
+            client.V1EnvVar(name="REPO_URL", value=repo_url),
+            client.V1EnvVar(name="BRANCH", value=branch),
+            client.V1EnvVar(name="PROPOSAL_INDEX", value=str(proposal_index)),
+            client.V1EnvVar(
+                name="GITHUB_TOKEN",
+                value_from=client.V1EnvVarSource(
+                    secret_key_ref=client.V1SecretKeySelector(
+                        name="ui-recommender-secrets",
+                        key="github-token",
+                    )
+                ),
+            ),
+        ]
+        container = self._build_session_worker_container("createpr", env_vars)
+        job = self._build_session_job_spec(job_name, labels, container)
+        self._create_job_idempotent(job_name, job)
+        return job_name
+
     def delete_job(self, job_name: str) -> None:
         """Delete a completed job and its pods."""
         try:

@@ -1,101 +1,109 @@
 import uuid
 
-from app.model.job import Job, JobStatus, Proposal, ProposalStatus
-from app.repository.job_repository import JobRepository
+from app.model.session import (
+    Iteration,
+    IterationStatus,
+    Proposal,
+    ProposalStatus,
+    Session,
+    SessionStatus,
+)
+from app.repository.iteration_repository import IterationRepository
 from app.repository.proposal_repository import ProposalRepository
+from app.repository.session_repository import SessionRepository
 from app.repository.setting_repository import SettingRepository
 
 
-class TestJobRepository:
+class TestSessionRepository:
     def test_create_and_get(self, db):
-        repo = JobRepository(db)
-        job = Job(
+        repo = SessionRepository(db)
+        session = Session(
             repo_url="https://github.com/test/repo",
-            branch="main",
-            instruction="Fix the button color",
+            base_branch="main",
         )
-        created = repo.create(job)
+        created = repo.create(session)
 
         assert created.id is not None
-        assert created.status == JobStatus.PENDING
+        assert created.status == SessionStatus.ACTIVE
 
         fetched = repo.get_by_id(created.id)
         assert fetched is not None
         assert fetched.repo_url == "https://github.com/test/repo"
 
     def test_get_by_id_not_found(self, db):
-        repo = JobRepository(db)
+        repo = SessionRepository(db)
         result = repo.get_by_id(uuid.uuid4())
         assert result is None
 
-    def test_update_status(self, db):
-        repo = JobRepository(db)
-        job = repo.create(
-            Job(
-                repo_url="https://github.com/test/repo",
-                branch="main",
-                instruction="Update layout",
-            )
-        )
-
-        updated = repo.update_status(job.id, JobStatus.ANALYZING, k8s_job_name="test-job")
-        assert updated is not None
-        assert updated.status == JobStatus.ANALYZING
-        assert updated.k8s_job_name == "test-job"
-
-    def test_update_status_with_error(self, db):
-        repo = JobRepository(db)
-        job = repo.create(
-            Job(
-                repo_url="https://github.com/test/repo",
-                branch="main",
-                instruction="Update layout",
-            )
-        )
-
-        updated = repo.update_status(job.id, JobStatus.FAILED, error_message="Something went wrong")
-        assert updated is not None
-        assert updated.status == JobStatus.FAILED
-        assert updated.error_message == "Something went wrong"
-
     def test_list_all(self, db):
-        repo = JobRepository(db)
-        repo.create(
-            Job(
-                repo_url="https://github.com/test/a",
-                branch="main",
-                instruction="A",
-            )
+        repo = SessionRepository(db)
+        repo.create(Session(repo_url="https://github.com/test/a", base_branch="main"))
+        repo.create(Session(repo_url="https://github.com/test/b", base_branch="main"))
+
+        sessions = repo.list_all()
+        assert len(sessions) >= 2
+
+
+class TestIterationRepository:
+    def _create_session(self, db) -> Session:
+        repo = SessionRepository(db)
+        return repo.create(
+            Session(repo_url="https://github.com/test/repo", base_branch="main")
         )
-        repo.create(
-            Job(
-                repo_url="https://github.com/test/b",
-                branch="main",
-                instruction="B",
+
+    def test_create_and_get(self, db):
+        session = self._create_session(db)
+        repo = IterationRepository(db)
+        iteration = repo.create(
+            Iteration(
+                session_id=session.id,
+                iteration_index=0,
+                instruction="Make button blue",
             )
         )
 
-        jobs = repo.list_all()
-        assert len(jobs) >= 2
+        assert iteration.id is not None
+        assert iteration.status == IterationStatus.PENDING
+
+        fetched = repo.get_by_id(iteration.id)
+        assert fetched is not None
+        assert fetched.instruction == "Make button blue"
+
+    def test_get_latest_for_session(self, db):
+        session = self._create_session(db)
+        repo = IterationRepository(db)
+        repo.create(
+            Iteration(session_id=session.id, iteration_index=0, instruction="First")
+        )
+        repo.create(
+            Iteration(session_id=session.id, iteration_index=1, instruction="Second")
+        )
+
+        latest = repo.get_latest_for_session(session.id)
+        assert latest is not None
+        assert latest.iteration_index == 1
+        assert latest.instruction == "Second"
 
 
 class TestProposalRepository:
-    def _create_job(self, db) -> Job:
-        repo = JobRepository(db)
-        return repo.create(
-            Job(
-                repo_url="https://github.com/test/repo",
-                branch="main",
-                instruction="Test",
+    def _create_iteration(self, db) -> Iteration:
+        session_repo = SessionRepository(db)
+        session = session_repo.create(
+            Session(repo_url="https://github.com/test/repo", base_branch="main")
+        )
+        iter_repo = IterationRepository(db)
+        return iter_repo.create(
+            Iteration(
+                session_id=session.id, iteration_index=0, instruction="Test"
             )
         )
 
     def test_create_and_get(self, db):
-        job = self._create_job(db)
+        iteration = self._create_iteration(db)
         repo = ProposalRepository(db)
         proposal = repo.create(
             Proposal(
-                job_id=job.id,
+                iteration_id=iteration.id,
                 proposal_index=0,
                 title="Modern Layout",
                 concept="A clean modern layout",
@@ -110,12 +118,12 @@ class TestProposalRepository:
         assert fetched is not None
         assert fetched.title == "Modern Layout"
 
-    def test_get_by_job_and_index(self, db):
-        job = self._create_job(db)
+    def test_get_by_iteration_and_index(self, db):
+        iteration = self._create_iteration(db)
         repo = ProposalRepository(db)
         repo.create(
             Proposal(
-                job_id=job.id,
+                iteration_id=iteration.id,
                 proposal_index=0,
                 title="Proposal A",
                 concept="A",
@@ -124,7 +132,7 @@ class TestProposalRepository:
         )
         repo.create(
             Proposal(
-                job_id=job.id,
+                iteration_id=iteration.id,
                 proposal_index=1,
                 title="Proposal B",
                 concept="B",
@@ -132,20 +140,20 @@ class TestProposalRepository:
             )
         )
 
-        result = repo.get_by_job_and_index(job.id, 1)
+        result = repo.get_by_iteration_and_index(iteration.id, 1)
         assert result is not None
         assert result.title == "Proposal B"
 
-        result = repo.get_by_job_and_index(job.id, 99)
+        result = repo.get_by_iteration_and_index(iteration.id, 99)
         assert result is None
 
-    def test_get_all_for_job(self, db):
-        job = self._create_job(db)
+    def test_get_all_for_iteration(self, db):
+        iteration = self._create_iteration(db)
         repo = ProposalRepository(db)
         for i in range(3):
             repo.create(
                 Proposal(
-                    job_id=job.id,
+                    iteration_id=iteration.id,
                     proposal_index=i,
                     title=f"Proposal {i}",
                     concept=f"Concept {i}",
@@ -153,17 +161,17 @@ class TestProposalRepository:
                 )
             )
 
-        proposals = repo.get_all_for_job(job.id)
+        proposals = repo.get_all_for_iteration(iteration.id)
         assert len(proposals) == 3
         assert proposals[0].proposal_index == 0
         assert proposals[2].proposal_index == 2
 
-    def test_update_status(self, db):
-        job = self._create_job(db)
+    def test_update_status_optimistic(self, db):
+        iteration = self._create_iteration(db)
         repo = ProposalRepository(db)
         proposal = repo.create(
             Proposal(
-                job_id=job.id,
+                iteration_id=iteration.id,
                 proposal_index=0,
                 title="Test",
                 concept="Test",
@@ -171,9 +179,12 @@ class TestProposalRepository:
             )
         )
 
-        updated = repo.update_status(proposal.id, ProposalStatus.COMPLETED)
+        updated = repo.update_status_optimistic(
+            proposal.id, proposal.version, ProposalStatus.COMPLETED
+        )
         assert updated is not None
         assert updated.status == ProposalStatus.COMPLETED
+        assert updated.version == 2
 
 
 class TestSettingRepository:

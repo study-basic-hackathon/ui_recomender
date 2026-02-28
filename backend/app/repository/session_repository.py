@@ -1,8 +1,8 @@
 from uuid import UUID
 
-from sqlalchemy.orm import Session as DbSession
+from sqlalchemy.orm import Session as DbSession, selectinload
 
-from app.model.session import Session, SessionStatus
+from app.model.session import Iteration, Session, SessionStatus
 
 
 class SessionRepository:
@@ -16,7 +16,12 @@ class SessionRepository:
         return session
 
     def get_by_id(self, session_id: UUID) -> Session | None:
-        return self.db.query(Session).filter(Session.id == session_id).first()
+        return (
+            self.db.query(Session)
+            .options(selectinload(Session.iterations).selectinload(Iteration.proposals))
+            .filter(Session.id == session_id)
+            .first()
+        )
 
     def update_status(self, session_id: UUID, status: SessionStatus) -> Session | None:
         session = self.get_by_id(session_id)
@@ -27,4 +32,9 @@ class SessionRepository:
         return session
 
     def list_all(self) -> list[Session]:
-        return self.db.query(Session).order_by(Session.created_at.desc()).all()
+        return (
+            self.db.query(Session)
+            .options(selectinload(Session.iterations).selectinload(Iteration.proposals))
+            .order_by(Session.created_at.desc())
+            .all()
+        )

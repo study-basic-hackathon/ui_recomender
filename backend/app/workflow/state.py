@@ -1,19 +1,19 @@
 from typing import TypedDict
 
 
-class AnalyzerState(TypedDict):
-    """State for the analyzer workflow."""
+class SessionAnalyzerState(TypedDict):
+    """State for the session-based analyzer workflow."""
 
     # Input
-    job_id: str
+    session_id: str
+    iteration_index: int
     repo_url: str
     branch: str
     instruction: str
     num_proposals: int
 
-    # Optional chaining (continuation from parent proposal)
-    parent_job_id: str | None
-    parent_proposal_index: int | None
+    # Patch context (for iter > 0)
+    selected_proposal_index: int | None  # from previous iteration
 
     # Intermediate
     k8s_job_name: str | None
@@ -22,22 +22,22 @@ class AnalyzerState(TypedDict):
 
     # Output
     proposals: list[dict] | None
-    before_screenshot_path: str | None
+    before_screenshot_key: str | None
 
 
-class ImplementationState(TypedDict):
-    """State for the implementation workflow."""
+class SessionImplementationState(TypedDict):
+    """State for the session-based implementation workflow."""
 
     # Input
-    job_id: str
+    session_id: str
+    iteration_index: int
     repo_url: str
     branch: str
     proposal_index: int
     proposal_plan: str
 
-    # Optional chaining (continuation from parent proposal)
-    parent_job_id: str | None
-    parent_proposal_index: int | None
+    # Patch context (for iter > 0)
+    selected_proposal_index: int | None
 
     # Intermediate
     k8s_job_name: str | None
@@ -45,15 +45,16 @@ class ImplementationState(TypedDict):
     error: str | None
 
     # Output
-    after_screenshot_path: str | None
-    diff_content: str | None
+    after_screenshot_key: str | None
+    diff_key: str | None
 
 
-class CreatePRState(TypedDict):
-    """State for the PR creation workflow."""
+class SessionCreatePRState(TypedDict):
+    """State for the session-based PR creation workflow."""
 
     # Input
-    job_id: str
+    session_id: str
+    iteration_index: int
     repo_url: str
     branch: str
     proposal_index: int

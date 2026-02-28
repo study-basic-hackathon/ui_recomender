@@ -58,8 +58,8 @@ RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | \
     tee /etc/apt/sources.list.d/github-cli.list > /dev/null && \
     apt-get update && apt-get install -y gh && rm -rf /var/lib/apt/lists/*
 
-# Install Claude Agent SDK
-RUN pip install --no-cache-dir claude-agent-sdk
+# Install Claude Agent SDK and boto3 (S3 access)
+RUN pip install --no-cache-dir claude-agent-sdk boto3
 
 # Configure git identity for commits inside worker pods
 RUN git config --global user.name "Claude Code" && \

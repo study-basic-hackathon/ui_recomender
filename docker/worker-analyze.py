@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
-"""Analyzer Worker: Clones repo, takes before screenshot, generates design proposals via Claude Agent SDK."""
+"""Analyzer Worker: Clones repo, takes before screenshot, generates design proposals via Claude Agent SDK.
+
+Session-based: Reads/writes all artifacts via S3. No hostPath, no stdout embedding.
+"""
 
 import asyncio
-import base64
 import json
 import os
 import re
@@ -10,7 +12,62 @@ import subprocess
 import sys
 from pathlib import Path
 
+import boto3
+from botocore.config import Config
 from claude_agent_sdk import ClaudeAgentOptions, query
+
+
+def get_s3_client():
+    kwargs = {
+        "service_name": "s3",
+        "region_name": os.environ.get("S3_REGION", "us-east-1"),
+        "config": Config(signature_version="s3v4"),
+    }
+    endpoint = os.environ.get("S3_ENDPOINT_URL")
+    if endpoint:
+        kwargs["endpoint_url"] = endpoint
+        kwargs["aws_access_key_id"] = os.environ.get("S3_ACCESS_KEY", "minioadmin")
+        kwargs["aws_secret_access_key"] = os.environ.get("S3_SECRET_KEY", "minioadmin")
+    return boto3.client(**kwargs)
+
+
+def s3_download(s3, bucket, key, local_path):
+    try:
+        s3.download_file(bucket, key, local_path)
+        return True
+    except Exception as e:
+        print(f"S3 download failed for {key}: {e}", file=sys.stderr)
+        return False
+
+
+def s3_upload_file(s3, bucket, key, local_path, content_type="application/octet-stream"):
+    for attempt in range(3):
+        try:
+            s3.upload_file(
+                local_path, bucket, key,
+                ExtraArgs={"ContentType": content_type},
+            )
+            print(f"Uploaded {key}")
+            return
+        except Exception as e:
+            print(f"S3 upload attempt {attempt + 1} failed for {key}: {e}", file=sys.stderr)
+            if attempt == 2:
+                raise
+
+
+def s3_upload_text(s3, bucket, key, text, content_type="text/plain"):
+    for attempt in range(3):
+        try:
+            s3.put_object(
+                Bucket=bucket, Key=key,
+                Body=text.encode("utf-8"), ContentType=content_type,
+            )
+            print(f"Uploaded {key}")
+            return
+        except Exception as e:
+            print(f"S3 upload attempt {attempt + 1} failed for {key}: {e}", file=sys.stderr)
+            if attempt == 2:
+                raise
 
 
 async def take_before_screenshot(repo_dir: str, screenshot_output: str) -> None:
@@ -155,15 +212,21 @@ Remember: The JSON output is the MOST IMPORTANT part. Even if your analysis is i
 
 async def main() -> None:
     # Read environment variables
-    job_id = os.environ["JOB_ID"]
+    session_id = os.environ["SESSION_ID"]
+    iteration_index = int(os.environ["ITERATION_INDEX"])
     repo_url = os.environ["REPO_URL"]
     branch = os.environ.get("BRANCH", "main")
     instruction = os.environ["INSTRUCTION"]
     num_proposals = int(os.environ.get("NUM_PROPOSALS", "3"))
+    selected_proposal_index = os.environ.get("SELECTED_PROPOSAL_INDEX")
 
-    artifact_dir = f"/artifacts/{job_id}"
+    bucket = os.environ["S3_BUCKET"]
+    s3 = get_s3_client()
+    tmp_dir = "/tmp/artifacts"
     repo_dir = "/workspace/repo"
-    os.makedirs(artifact_dir, exist_ok=True)
+    os.makedirs(tmp_dir, exist_ok=True)
+
+    s3_prefix = f"sessions/{session_id}/iterations/{iteration_index}"
 
     # Step 1: Clone repository
     print("=== Cloning repository ===")
@@ -172,15 +235,19 @@ async def main() -> None:
         check=True,
     )
 
-    # Step 1.5: Apply parent patch if this is a continuation job
-    parent_job_id = os.environ.get("PARENT_JOB_ID")
-    parent_proposal_index = os.environ.get("PARENT_PROPOSAL_INDEX")
-    if parent_job_id and parent_proposal_index:
-        patch_path = f"/artifacts/{parent_job_id}/proposals/{parent_proposal_index}/changes.diff"
-        if Path(patch_path).exists():
-            print(f"=== Applying parent patch from {patch_path} ===")
+    # Step 1.5: Apply cumulative patch from previous iteration (if iter > 0)
+    if iteration_index > 0 and selected_proposal_index is not None:
+        prev_iter = iteration_index - 1
+        patch_key = (
+            f"sessions/{session_id}/iterations/{prev_iter}"
+            f"/proposals/{selected_proposal_index}/changes.diff"
+        )
+        local_patch = f"{tmp_dir}/parent.diff"
+        print(f"=== Downloading patch from S3: {patch_key} ===")
+        if s3_download(s3, bucket, patch_key, local_patch):
+            print("=== Applying cumulative patch ===")
             result = subprocess.run(
-                ["git", "am", "--3way", patch_path],
+                ["git", "am", "--3way", local_patch],
                 cwd=repo_dir,
                 capture_output=True,
                 text=True,
@@ -192,7 +259,7 @@ async def main() -> None:
                     ["git", "am", "--abort"], cwd=repo_dir, capture_output=True
                 )
                 subprocess.run(
-                    ["git", "apply", "--3way", patch_path],
+                    ["git", "apply", "--3way", local_patch],
                     cwd=repo_dir,
                     check=True,
                 )
@@ -202,39 +269,45 @@ async def main() -> None:
                     cwd=repo_dir,
                     check=True,
                 )
-            print("=== Parent patch applied successfully ===")
+            print("=== Cumulative patch applied successfully ===")
         else:
-            print(f"WARNING: Parent patch not found at {patch_path}", file=sys.stderr)
+            print(
+                f"WARNING: Patch not found at s3://{bucket}/{patch_key}",
+                file=sys.stderr,
+            )
 
-    # Step 2: Take before screenshot via Agent SDK
+    # Step 2: Take before screenshot
     print("=== Taking before screenshot ===")
-    await take_before_screenshot(repo_dir, f"{artifact_dir}/before.png")
+    before_path = f"{tmp_dir}/before.png"
+    await take_before_screenshot(repo_dir, before_path)
 
     # Step 3: Generate design proposals via Claude Agent SDK
     print("=== Generating design proposals ===")
     proposals = await generate_proposals(repo_dir, instruction, num_proposals)
-
-    # Step 4: Save results to file and output to stdout for Backend retrieval
     print(f"=== Generated {len(proposals)} proposals ===")
-    result = {"proposals": proposals}
-    with open(f"{artifact_dir}/proposals.json", "w") as f:
-        json.dump(result, f, indent=2, ensure_ascii=False)
 
-    # Output artifacts to stdout with markers so Backend can extract from pod logs
+    # Step 4: Upload results to S3
+    print("=== Uploading results to S3 ===")
 
-    proposals_json = json.dumps(result, ensure_ascii=False)
-    print(f"===ARTIFACT:proposals.json:START===")
-    print(proposals_json)
-    print(f"===ARTIFACT:proposals.json:END===")
+    # Upload before screenshot
+    if Path(before_path).exists():
+        s3_upload_file(
+            s3, bucket,
+            f"{s3_prefix}/before.png",
+            before_path,
+            content_type="image/png",
+        )
 
-    before_path = Path(f"{artifact_dir}/before.png")
-    if before_path.exists():
-        b64 = base64.b64encode(before_path.read_bytes()).decode()
-        print(f"===ARTIFACT:before.png:START===")
-        print(b64)
-        print(f"===ARTIFACT:before.png:END===")
+    # Upload proposals.json
+    proposals_data = {"proposals": proposals}
+    s3_upload_text(
+        s3, bucket,
+        f"{s3_prefix}/proposals.json",
+        json.dumps(proposals_data, ensure_ascii=False, indent=2),
+        content_type="application/json",
+    )
 
-    print(f"=== Analysis Complete ===")
+    print("=== Analysis Complete ===")
 
 
 if __name__ == "__main__":

@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-"""PR Creation Worker: Applies a diff and creates a PR using Claude Agent SDK for quality descriptions."""
+"""PR Creation Worker: Downloads patch from S3, applies it, pushes branch, creates PR.
+
+Session-based: This is the ONLY worker that pushes to the remote repository.
+"""
 
 import asyncio
 import os
@@ -9,13 +12,50 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+import boto3
+from botocore.config import Config
 from claude_agent_sdk import ClaudeAgentOptions, query
+
+
+def get_s3_client():
+    kwargs = {
+        "service_name": "s3",
+        "region_name": os.environ.get("S3_REGION", "us-east-1"),
+        "config": Config(signature_version="s3v4"),
+    }
+    endpoint = os.environ.get("S3_ENDPOINT_URL")
+    if endpoint:
+        kwargs["endpoint_url"] = endpoint
+        kwargs["aws_access_key_id"] = os.environ.get("S3_ACCESS_KEY", "minioadmin")
+        kwargs["aws_secret_access_key"] = os.environ.get("S3_SECRET_KEY", "minioadmin")
+    return boto3.client(**kwargs)
+
+
+def s3_download(s3, bucket, key, local_path):
+    try:
+        s3.download_file(bucket, key, local_path)
+        return True
+    except Exception as e:
+        print(f"S3 download failed for {key}: {e}", file=sys.stderr)
+        return False
+
+
+def s3_upload_text(s3, bucket, key, text):
+    for attempt in range(3):
+        try:
+            s3.put_object(Bucket=bucket, Key=key, Body=text.encode("utf-8"), ContentType="text/plain")
+            print(f"Uploaded {key}")
+            return
+        except Exception as e:
+            print(f"S3 upload attempt {attempt + 1} failed for {key}: {e}", file=sys.stderr)
+            if attempt == 2:
+                raise
 
 
 async def push_and_create_pr(
     repo_dir: str, branch_name: str, base_branch: str, diff_summary: str
 ) -> str:
-    """Use Claude Agent SDK to push the branch and create a PR with a good description."""
+    """Use Claude Agent SDK to push the branch and create a PR."""
     prompt = f"""You are creating a GitHub Pull Request for UI design changes.
 
 The repository is at {repo_dir}. You are on branch "{branch_name}".
@@ -46,15 +86,12 @@ Please do the following:
 
 IMPORTANT: You MUST output the PR URL in that exact format so it can be extracted.
 """
-
     collected_text: list[str] = []
     async for msg in query(
         prompt=prompt,
         options=ClaudeAgentOptions(
             allowed_tools=["Read", "Bash", "Glob", "Grep"],
-            cwd=repo_dir,
-            max_turns=15,
-            max_budget_usd=1.0,
+            cwd=repo_dir, max_turns=15, max_budget_usd=1.0,
         ),
     ):
         if hasattr(msg, "content"):
@@ -64,41 +101,44 @@ IMPORTANT: You MUST output the PR URL in that exact format so it can be extracte
                     print(f"Agent: {block.text[:200]}")
 
     full_text = "\n".join(collected_text)
-
-    # Extract PR URL from agent output
     for line in full_text.split("\n"):
         if "PR_URL:" in line:
             return line.split("PR_URL:")[-1].strip()
 
-    # Fallback: find a github.com PR URL in the output
     urls = re.findall(r"https://github\.com/[^\s)\"']+/pull/\d+", full_text)
     if urls:
         return urls[0]
-
     return ""
 
 
 async def main() -> None:
-    job_id = os.environ["JOB_ID"]
+    session_id = os.environ["SESSION_ID"]
+    iteration_index = int(os.environ["ITERATION_INDEX"])
     repo_url = os.environ["REPO_URL"]
     branch = os.environ.get("BRANCH", "main")
     proposal_index = os.environ["PROPOSAL_INDEX"]
     github_token = os.environ["GITHUB_TOKEN"]
 
-    artifact_dir = f"/artifacts/{job_id}/proposals/{proposal_index}"
+    bucket = os.environ["S3_BUCKET"]
+    s3 = get_s3_client()
+    tmp_dir = "/tmp/artifacts"
+    os.makedirs(tmp_dir, exist_ok=True)
 
-    # Configure gh CLI authentication
     os.environ["GH_TOKEN"] = github_token
 
-    # Step 1: Read the diff
-    diff_path = f"{artifact_dir}/changes.diff"
-    if not Path(diff_path).exists():
-        print(f"Error: Diff not found at {diff_path}", file=sys.stderr)
+    # Step 1: Download patch from S3
+    patch_key = (
+        f"sessions/{session_id}/iterations/{iteration_index}"
+        f"/proposals/{proposal_index}/changes.diff"
+    )
+    local_patch = f"{tmp_dir}/changes.diff"
+    if not s3_download(s3, bucket, patch_key, local_patch):
+        print(f"Error: Patch not found at s3://{bucket}/{patch_key}", file=sys.stderr)
         sys.exit(1)
-    diff_content = Path(diff_path).read_text()
-    print(f"=== Diff loaded ({len(diff_content)} chars) ===")
+    diff_content = Path(local_patch).read_text()
+    print(f"=== Patch loaded ({len(diff_content)} chars) ===")
 
-    # Step 2: Clone repository (shallow, with token auth for push)
+    # Step 2: Clone repository (with token auth for push)
     print("=== Cloning repository ===")
     repo_dir = "/workspace/repo"
     if repo_url.startswith("https://github.com/"):
@@ -116,61 +156,42 @@ async def main() -> None:
 
     # Step 3: Create a new branch
     ts = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
-    branch_name = f"feat/{ts}-ui-proposal-{proposal_index}"
+    branch_name = f"feat/{ts}-ui-session-{session_id[:8]}"
     print(f"=== Creating branch: {branch_name} ===")
-    subprocess.run(
-        ["git", "checkout", "-b", branch_name],
-        cwd=repo_dir,
-        check=True,
-    )
+    subprocess.run(["git", "checkout", "-b", branch_name], cwd=repo_dir, check=True)
 
-    # Step 4: Apply the diff using git am (format-patch output)
-    print("=== Applying diff ===")
+    # Step 4: Apply the patch
+    print("=== Applying patch ===")
     result = subprocess.run(
-        ["git", "am", "--3way", diff_path],
-        cwd=repo_dir,
-        capture_output=True,
-        text=True,
+        ["git", "am", "--3way", local_patch],
+        cwd=repo_dir, capture_output=True, text=True,
     )
     if result.returncode != 0:
         print(f"git am failed: {result.stderr}", file=sys.stderr)
         print("Falling back to git apply...")
-        subprocess.run(
-            ["git", "am", "--abort"], cwd=repo_dir, capture_output=True
-        )
-        subprocess.run(
-            ["git", "apply", "--3way", diff_path],
-            cwd=repo_dir,
-            check=True,
-        )
+        subprocess.run(["git", "am", "--abort"], cwd=repo_dir, capture_output=True)
+        subprocess.run(["git", "apply", "--3way", local_patch], cwd=repo_dir, check=True)
         subprocess.run(["git", "add", "-A"], cwd=repo_dir, check=True)
         subprocess.run(
-            ["git", "commit", "-m", f"feat: apply UI proposal {proposal_index}"],
-            cwd=repo_dir,
-            check=True,
+            ["git", "commit", "-m", f"feat: apply UI changes from session {session_id[:8]}"],
+            cwd=repo_dir, check=True,
         )
 
-    # Step 5: Unshallow for push compatibility
-    subprocess.run(
-        ["git", "fetch", "--unshallow"],
-        cwd=repo_dir,
-        capture_output=True,
-    )
+    # Step 5: Unshallow for push
+    subprocess.run(["git", "fetch", "--unshallow"], cwd=repo_dir, capture_output=True)
 
-    # Step 6: Use Agent SDK to push and create PR with good description
+    # Step 6: Push and create PR via Agent SDK
     print("=== Creating PR via Agent SDK ===")
-    # Provide first 10000 chars of diff for context
     diff_summary = diff_content[:10000]
     pr_url = await push_and_create_pr(repo_dir, branch_name, branch, diff_summary)
 
     if pr_url:
         print(f"PR created: {pr_url}")
-        pr_url_file = f"{artifact_dir}/pr_url.txt"
-        Path(pr_url_file).write_text(pr_url)
-
-        print("===ARTIFACT:pr_url.txt:START===")
-        print(pr_url)
-        print("===ARTIFACT:pr_url.txt:END===")
+        pr_url_key = (
+            f"sessions/{session_id}/iterations/{iteration_index}"
+            f"/proposals/{proposal_index}/pr_url.txt"
+        )
+        s3_upload_text(s3, bucket, pr_url_key, pr_url)
     else:
         print("Error: Failed to extract PR URL from agent output", file=sys.stderr)
         sys.exit(1)

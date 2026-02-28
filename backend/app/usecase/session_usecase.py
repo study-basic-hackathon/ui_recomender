@@ -223,10 +223,9 @@ async def _run_session_analysis(
 ) -> None:
     """Background: run session analyzer workflow, then auto-implement all proposals."""
     db = SessionLocal()
+    iter_repo = IterationRepository(db)
+    proposal_repo = ProposalRepository(db)
     try:
-        iter_repo = IterationRepository(db)
-        proposal_repo = ProposalRepository(db)
-
         iteration = iter_repo.get_by_id(UUID(iteration_id))
         if not iteration:
             logger.error("Iteration %s not found", iteration_id)
@@ -353,9 +352,8 @@ async def _run_session_implementation(
 ) -> None:
     """Background: run one session-based implementation workflow."""
     db = SessionLocal()
+    proposal_repo = ProposalRepository(db)
     try:
-        proposal_repo = ProposalRepository(db)
-
         proposal = proposal_repo.get_by_id(UUID(proposal_id))
         if not proposal:
             logger.error("Proposal %s not found", proposal_id)
@@ -445,9 +443,8 @@ async def _run_session_create_pr(
 ) -> None:
     """Background: run session-based PR creation workflow."""
     db = SessionLocal()
+    proposal_repo = ProposalRepository(db)
     try:
-        proposal_repo = ProposalRepository(db)
-
         graph = build_session_create_pr_graph()
         result = await graph.ainvoke(
             {

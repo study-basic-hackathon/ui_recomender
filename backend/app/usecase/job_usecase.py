@@ -36,12 +36,20 @@ class CreateJobUseCase:
         job_id = str(job.id)
 
         # Run analysis in background (separate DB session)
-        asyncio.create_task(self._run_analysis(job_id, repo_url, branch, instruction))
+        asyncio.create_task(
+            CreateJobUseCase._run_analysis(job_id, repo_url, branch, instruction)
+        )
 
         return job
 
+    @staticmethod
     async def _run_analysis(
-        self, job_id: str, repo_url: str, branch: str, instruction: str
+        job_id: str,
+        repo_url: str,
+        branch: str,
+        instruction: str,
+        parent_job_id: str | None = None,
+        parent_proposal_index: int | None = None,
     ) -> None:
         """Background task: run the analyzer LangGraph workflow."""
         db = SessionLocal()
@@ -64,6 +72,8 @@ class CreateJobUseCase:
                     "error": None,
                     "proposals": None,
                     "before_screenshot_path": None,
+                    "parent_job_id": parent_job_id,
+                    "parent_proposal_index": parent_proposal_index,
                 }
             )
 
@@ -105,6 +115,8 @@ class CreateJobUseCase:
                             proposal.proposal_index or 0,
                             str(proposal.id),
                             str(proposal.plan),
+                            parent_job_id=parent_job_id,
+                            parent_proposal_index=parent_proposal_index,
                         )
                     )
                 logger.info(
@@ -148,17 +160,22 @@ class ImplementProposalUseCase:
 
         self.job_repo.update_status(job_id, JobStatus.IMPLEMENTING)
 
+        parent_jid = str(job.parent_job_id) if job.parent_job_id else None
+        parent_pidx = job.parent_proposal_index
+
         for idx in proposal_indices:
             proposal = self.proposal_repo.get_by_job_and_index(job_id, idx)
             if proposal:
                 asyncio.create_task(
-                    self._run_implementation(
+                    self._run_implementation_static(
                         str(job_id),
                         str(job.repo_url),
                         str(job.branch),
                         idx,
                         str(proposal.id),
                         str(proposal.plan),
+                        parent_job_id=parent_jid,
+                        parent_proposal_index=parent_pidx,
                     )
                 )
 
@@ -168,19 +185,6 @@ class ImplementProposalUseCase:
             raise ValueError("Job not found after update")
         return updated_job
 
-    async def _run_implementation(
-        self,
-        job_id: str,
-        repo_url: str,
-        branch: str,
-        proposal_index: int,
-        proposal_id: str,
-        plan_json: str,
-    ) -> None:
-        await self._run_implementation_static(
-            job_id, repo_url, branch, proposal_index, proposal_id, plan_json
-        )
-
     @staticmethod
     async def _run_implementation_static(
         job_id: str,
@@ -189,6 +193,8 @@ class ImplementProposalUseCase:
         proposal_index: int,
         proposal_id: str,
         plan_json: str,
+        parent_job_id: str | None = None,
+        parent_proposal_index: int | None = None,
     ) -> None:
         """Background task: run one implementation LangGraph workflow."""
         db = SessionLocal()
@@ -214,6 +220,8 @@ class ImplementProposalUseCase:
                     "error": None,
                     "after_screenshot_path": None,
                     "diff_content": None,
+                    "parent_job_id": parent_job_id,
+                    "parent_proposal_index": parent_proposal_index,
                 }
             )
 
@@ -282,6 +290,61 @@ class ImplementProposalUseCase:
             new_status = JobStatus.COMPLETED if any_succeeded else JobStatus.FAILED
             job_repo.update_status(job_id, new_status)
             logger.info("Job %s completed with status: %s", job_id, new_status)
+
+
+class ContinueJobUseCase:
+    """Create a continuation job from a completed proposal."""
+
+    def __init__(self, db: Session) -> None:
+        self.db = db
+        self.job_repo = JobRepository(db)
+        self.proposal_repo = ProposalRepository(db)
+
+    async def execute(
+        self, parent_job_id: UUID, parent_proposal_index: int, instruction: str
+    ) -> Job:
+        parent_job = self.job_repo.get_by_id(parent_job_id)
+        if not parent_job:
+            raise ValueError("Parent job not found")
+        if parent_job.status != JobStatus.COMPLETED:
+            raise ValueError(f"Parent job is not completed: {parent_job.status}")
+
+        parent_proposal = self.proposal_repo.get_by_job_and_index(
+            parent_job_id, parent_proposal_index
+        )
+        if not parent_proposal:
+            raise ValueError(f"Proposal {parent_proposal_index} not found")
+        if parent_proposal.status != ProposalStatus.COMPLETED:
+            raise ValueError(f"Proposal is not completed: {parent_proposal.status}")
+
+        artifacts = ArtifactService()
+        diff = artifacts.get_diff(str(parent_job_id), parent_proposal_index)
+        if not diff:
+            raise ValueError("No patch file found for the parent proposal")
+
+        child_job = Job(
+            repo_url=parent_job.repo_url,
+            branch=parent_job.branch,
+            instruction=instruction,
+            status=JobStatus.PENDING,
+            parent_job_id=parent_job_id,
+            parent_proposal_index=parent_proposal_index,
+        )
+        child_job = self.job_repo.create(child_job)
+        child_job_id = str(child_job.id)
+
+        asyncio.create_task(
+            CreateJobUseCase._run_analysis(
+                child_job_id,
+                str(parent_job.repo_url),
+                str(parent_job.branch),
+                instruction,
+                parent_job_id=str(parent_job_id),
+                parent_proposal_index=parent_proposal_index,
+            )
+        )
+
+        return child_job
 
 
 class CreatePRUseCase:

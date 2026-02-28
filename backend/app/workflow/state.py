@@ -11,6 +11,10 @@ class AnalyzerState(TypedDict):
     instruction: str
     num_proposals: int
 
+    # Optional chaining (continuation from parent proposal)
+    parent_job_id: str | None
+    parent_proposal_index: int | None
+
     # Intermediate
     k8s_job_name: str | None
     status: str  # pending, running, succeeded, failed, timeout
@@ -30,6 +34,10 @@ class ImplementationState(TypedDict):
     branch: str
     proposal_index: int
     proposal_plan: str
+
+    # Optional chaining (continuation from parent proposal)
+    parent_job_id: str | None
+    parent_proposal_index: int | None
 
     # Intermediate
     k8s_job_name: str | None

@@ -39,8 +39,14 @@ class JobResponse(BaseModel):
     before_screenshot_url: str | None = None
     error_message: str | None = None
     proposals: list[ProposalResponse] = []
+    parent_job_id: UUID | None = None
+    parent_proposal_index: int | None = None
     created_at: datetime
     updated_at: datetime
+
+
+class ContinueJobRequest(BaseModel):
+    instruction: str = Field(..., min_length=1, description="Additional UI refinement instruction")
 
 
 class ImplementRequest(BaseModel):

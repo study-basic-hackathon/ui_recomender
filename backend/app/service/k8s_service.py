@@ -102,6 +102,19 @@ class K8sService:
             ),
         )
 
+    def _append_parent_env_vars(
+        self,
+        env_vars: list[client.V1EnvVar],
+        parent_job_id: str | None,
+        parent_proposal_index: int | None,
+    ) -> None:
+        """Append PARENT_JOB_ID / PARENT_PROPOSAL_INDEX env vars if set."""
+        if parent_job_id is not None and parent_proposal_index is not None:
+            env_vars.append(client.V1EnvVar(name="PARENT_JOB_ID", value=parent_job_id))
+            env_vars.append(
+                client.V1EnvVar(name="PARENT_PROPOSAL_INDEX", value=str(parent_proposal_index))
+            )
+
     def create_analyzer_job(
         self,
         job_id: str,
@@ -109,6 +122,8 @@ class K8sService:
         branch: str,
         instruction: str,
         num_proposals: int,
+        parent_job_id: str | None = None,
+        parent_proposal_index: int | None = None,
     ) -> str:
         """Create a K8s Job for analysis. Returns the K8s job name."""
         job_name = f"ui-worker-{job_id[:8]}-analyze"
@@ -125,6 +140,7 @@ class K8sService:
             client.V1EnvVar(name="INSTRUCTION", value=instruction),
             client.V1EnvVar(name="NUM_PROPOSALS", value=str(num_proposals)),
         ]
+        self._append_parent_env_vars(env_vars, parent_job_id, parent_proposal_index)
         container = self._build_worker_container("analyze", env_vars)
         job = self._build_job_spec(job_name, labels, container)
 
@@ -139,6 +155,8 @@ class K8sService:
         branch: str,
         proposal_index: int,
         proposal_plan: str,
+        parent_job_id: str | None = None,
+        parent_proposal_index: int | None = None,
     ) -> str:
         """Create a K8s Job for implementation. Returns the K8s job name."""
         job_name = f"ui-worker-{job_id[:8]}-impl-{proposal_index}"
@@ -155,6 +173,7 @@ class K8sService:
             client.V1EnvVar(name="PROPOSAL_INDEX", value=str(proposal_index)),
             client.V1EnvVar(name="PROPOSAL_PLAN", value=proposal_plan),
         ]
+        self._append_parent_env_vars(env_vars, parent_job_id, parent_proposal_index)
         container = self._build_worker_container("implement", env_vars)
         job = self._build_job_spec(job_name, labels, container)
 

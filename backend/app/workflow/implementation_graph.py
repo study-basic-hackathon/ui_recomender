@@ -24,6 +24,8 @@ async def create_k8s_job(state: ImplementationState) -> dict:
         branch=state["branch"],
         proposal_index=state["proposal_index"],
         proposal_plan=state["proposal_plan"],
+        parent_job_id=state.get("parent_job_id"),
+        parent_proposal_index=state.get("parent_proposal_index"),
     )
     return {"k8s_job_name": job_name, "status": "running"}
 

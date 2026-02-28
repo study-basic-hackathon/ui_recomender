@@ -39,6 +39,8 @@ class Job(Base):
     before_screenshot_path = Column(String(500), nullable=True)
     error_message = Column(Text, nullable=True)
     k8s_job_name = Column(String(200), nullable=True)
+    parent_job_id = Column(Uuid, ForeignKey("jobs.id", ondelete="SET NULL"), nullable=True)
+    parent_proposal_index = Column(Integer, nullable=True)
     created_at = Column(DateTime(timezone=True), default=_utcnow)
     updated_at = Column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow)
 

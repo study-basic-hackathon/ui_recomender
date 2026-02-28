@@ -104,6 +104,40 @@ async def main() -> None:
         check=True,
     )
 
+    # Step 1.5: Apply parent patch if this is a continuation job
+    parent_job_id = os.environ.get("PARENT_JOB_ID")
+    parent_proposal_index = os.environ.get("PARENT_PROPOSAL_INDEX")
+    if parent_job_id and parent_proposal_index:
+        patch_path = f"/artifacts/{parent_job_id}/proposals/{parent_proposal_index}/changes.diff"
+        if Path(patch_path).exists():
+            print(f"=== Applying parent patch from {patch_path} ===")
+            result = subprocess.run(
+                ["git", "am", "--3way", patch_path],
+                cwd=repo_dir,
+                capture_output=True,
+                text=True,
+            )
+            if result.returncode != 0:
+                print(f"git am failed: {result.stderr}", file=sys.stderr)
+                print("Falling back to git apply...")
+                subprocess.run(
+                    ["git", "am", "--abort"], cwd=repo_dir, capture_output=True
+                )
+                subprocess.run(
+                    ["git", "apply", "--3way", patch_path],
+                    cwd=repo_dir,
+                    check=True,
+                )
+                subprocess.run(["git", "add", "-A"], cwd=repo_dir, check=True)
+                subprocess.run(
+                    ["git", "commit", "-m", "apply base patch"],
+                    cwd=repo_dir,
+                    check=True,
+                )
+            print("=== Parent patch applied successfully ===")
+        else:
+            print(f"WARNING: Parent patch not found at {patch_path}", file=sys.stderr)
+
     # Step 2: Create feature branch
     branch_name = generate_branch_name(proposal_index)
     print(f"=== Creating branch: {branch_name} ===")
@@ -125,6 +159,13 @@ async def main() -> None:
 
     # Stage all changes (new, modified, deleted files)
     subprocess.run(["git", "add", "-A"], cwd=repo_dir, check=True)
+    # Squash all changes (including parent patch) into a single commit
+    # This ensures cumulative patches work correctly for deep chains
+    subprocess.run(
+        ["git", "reset", "--soft", f"origin/{branch}"],
+        cwd=repo_dir,
+        check=True,
+    )
     # Commit with proposal title as message
     subprocess.run(
         ["git", "commit", "-m", f"feat: {commit_title}"],

@@ -9,13 +9,19 @@ from app.di.dependencies import get_artifact_service, get_db
 from app.model.job import Job, Proposal
 from app.repository.job_repository import JobRepository
 from app.schema.job_schema import (
+    ContinueJobRequest,
     CreateJobRequest,
     ImplementRequest,
     JobResponse,
     ProposalResponse,
 )
 from app.service.artifact_service import ArtifactService
-from app.usecase.job_usecase import CreateJobUseCase, CreatePRUseCase, ImplementProposalUseCase
+from app.usecase.job_usecase import (
+    ContinueJobUseCase,
+    CreateJobUseCase,
+    CreatePRUseCase,
+    ImplementProposalUseCase,
+)
 
 router = APIRouter(prefix="/api/jobs", tags=["jobs"])
 
@@ -67,6 +73,8 @@ def _to_job_response(job: Job) -> JobResponse:
         ),
         error_message=job.error_message,
         proposals=proposals,
+        parent_job_id=job.parent_job_id,
+        parent_proposal_index=job.parent_proposal_index,
         created_at=job.created_at,
         updated_at=job.updated_at,
     )
@@ -106,6 +114,21 @@ async def implement_proposals(
     usecase = ImplementProposalUseCase(db)
     try:
         job = await usecase.execute(job_id, request.proposal_indices)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return _to_job_response(job)
+
+
+@router.post("/{job_id}/proposals/{proposal_index}/continue", response_model=JobResponse, status_code=201)
+async def continue_from_proposal(
+    job_id: UUID,
+    proposal_index: int,
+    request: ContinueJobRequest,
+    db: Session = Depends(get_db),
+) -> JobResponse:
+    usecase = ContinueJobUseCase(db)
+    try:
+        job = await usecase.execute(job_id, proposal_index, request.instruction)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     return _to_job_response(job)

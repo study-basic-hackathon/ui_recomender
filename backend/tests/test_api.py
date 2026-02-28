@@ -135,6 +135,7 @@ class TestCreateSession:
         import app.usecase.session_usecase as usecase_mod
 
         monkeypatch.setattr(usecase_mod.asyncio, "create_task", lambda coro: coro.close())
+        monkeypatch.setattr("app.service.s3_service.S3Service._ensure_bucket", lambda self: None)
 
         response = client.post(
             "/api/sessions/",

@@ -1,15 +1,26 @@
 import { useNavigate, useLocation } from 'react-router-dom'
-import { type Job } from '../services/api'
+import { type Session } from '../services/api'
 import StatusBadge from './StatusBadge'
 import logoIcon from '../assets/claude_desgin.png'
 
 type SidebarProps = {
-  jobs: Job[]
+  sessions: Session[]
   isOpen: boolean
   onToggle: () => void
 }
 
-export default function Sidebar({ jobs, isOpen, onToggle }: SidebarProps) {
+function getSessionStatus(session: Session): string {
+  if (session.iterations.length === 0) return 'pending'
+  const latest = session.iterations[session.iterations.length - 1]
+  return latest.status
+}
+
+function getSessionInstruction(session: Session): string {
+  if (session.iterations.length === 0) return ''
+  return session.iterations[0].instruction
+}
+
+export default function Sidebar({ sessions, isOpen, onToggle }: SidebarProps) {
   const navigate = useNavigate()
   const location = useLocation()
 
@@ -102,17 +113,19 @@ export default function Sidebar({ jobs, isOpen, onToggle }: SidebarProps) {
               cursor: 'pointer',
             }}
           >
-            + New Job
+            + New Session
           </button>
         </div>
 
         <div style={{ flex: 1, overflowY: 'auto', padding: '0 8px' }}>
-          {jobs.map((job) => {
-            const isActive = location.pathname === `/jobs/${job.id}`
+          {sessions.map((session) => {
+            const isActive = location.pathname === `/sessions/${session.id}`
+            const instruction = getSessionInstruction(session)
+            const status = getSessionStatus(session)
             return (
               <div
-                key={job.id}
-                onClick={() => navigate(`/jobs/${job.id}`)}
+                key={session.id}
+                onClick={() => navigate(`/sessions/${session.id}`)}
                 style={{
                   padding: '0 12px',
                   height: '63px',
@@ -136,7 +149,7 @@ export default function Sidebar({ jobs, isOpen, onToggle }: SidebarProps) {
                       textOverflow: 'ellipsis',
                     }}
                   >
-                    {job.repo_url.replace('https://github.com/', '')}
+                    {session.repo_url.replace('https://github.com/', '')}
                   </div>
                   <div
                     style={{
@@ -148,11 +161,11 @@ export default function Sidebar({ jobs, isOpen, onToggle }: SidebarProps) {
                       textOverflow: 'ellipsis',
                     }}
                   >
-                    {job.instruction.substring(0, 80)}
-                    {job.instruction.length > 80 ? '...' : ''}
+                    {instruction.substring(0, 80)}
+                    {instruction.length > 80 ? '...' : ''}
                   </div>
                 </div>
-                <StatusBadge status={job.status} />
+                <StatusBadge status={status} />
               </div>
             )
           })}

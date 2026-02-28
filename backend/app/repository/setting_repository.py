@@ -1,6 +1,6 @@
 from sqlalchemy.orm import Session
 
-from app.model.job import Setting
+from app.model.session import Setting
 
 
 class SettingRepository:

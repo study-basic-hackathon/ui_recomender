@@ -3,18 +3,19 @@ from typing import Any
 
 from langgraph.graph import END, START, StateGraph
 
-from app.service.artifact_service import ArtifactService
 from app.service.k8s_service import K8sService
-from app.workflow.state import CreatePRState
+from app.service.s3_service import S3Service
+from app.workflow.state import SessionCreatePRState
 
 logger = logging.getLogger(__name__)
 
 
-async def create_k8s_job(state: CreatePRState) -> dict:
-    """Create the K8s Job for PR creation."""
+async def create_k8s_job(state: SessionCreatePRState) -> dict:
+    """Create the K8s Job for session-based PR creation."""
     k8s = K8sService()
-    job_name = k8s.create_pr_job(
-        job_id=state["job_id"],
+    job_name = k8s.create_session_pr_job(
+        session_id=state["session_id"],
+        iteration_index=state["iteration_index"],
         repo_url=state["repo_url"],
         branch=state["branch"],
         proposal_index=state["proposal_index"],
@@ -22,7 +23,7 @@ async def create_k8s_job(state: CreatePRState) -> dict:
     return {"k8s_job_name": job_name, "status": "running"}
 
 
-async def wait_for_job(state: CreatePRState) -> dict:
+async def wait_for_job(state: SessionCreatePRState) -> dict:
     """Poll K8s Job until completion."""
     k8s = K8sService()
     k8s_job_name = state["k8s_job_name"]
@@ -39,31 +40,27 @@ async def wait_for_job(state: CreatePRState) -> dict:
     return {"status": "failed", "error": error_msg}
 
 
-async def extract_results(state: CreatePRState) -> dict:
-    """Extract PR URL artifact from pod logs."""
-    k8s = K8sService()
-    artifacts = ArtifactService()
-
-    k8s_job_name = state["k8s_job_name"]
-    assert k8s_job_name is not None
-    logs = k8s.get_job_logs(k8s_job_name)
-    if logs:
-        artifacts.extract_impl_artifacts_from_logs(state["job_id"], state["proposal_index"], logs)
-
-    pr_url = artifacts.get_pr_url(state["job_id"], state["proposal_index"])
-    return {"pr_url": pr_url}
+async def extract_results(state: SessionCreatePRState) -> dict:
+    """Read PR URL from S3."""
+    s3 = S3Service()
+    pr_url_key = s3.pr_url_key(
+        state["session_id"], state["iteration_index"], state["proposal_index"]
+    )
+    pr_url = s3.download_text(pr_url_key)
+    if pr_url:
+        return {"pr_url": pr_url.strip()}
+    return {"error": "PR URL not found in S3", "status": "failed"}
 
 
-def route_after_wait(state: CreatePRState) -> str:
-    """Route based on job completion status."""
+def route_after_wait(state: SessionCreatePRState) -> str:
     if state["status"] == "succeeded":
         return "extract_results"
     return END
 
 
-def build_create_pr_graph() -> Any:
-    """Build and compile the PR creation LangGraph."""
-    graph = StateGraph(CreatePRState)
+def build_session_create_pr_graph() -> Any:
+    """Build and compile the session-based PR creation LangGraph."""
+    graph = StateGraph(SessionCreatePRState)
 
     graph.add_node("create_k8s_job", create_k8s_job)
     graph.add_node("wait_for_job", wait_for_job)

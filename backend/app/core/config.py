@@ -32,8 +32,16 @@ class Settings(BaseSettings):
     K8S_NAMESPACE: str = "default"
     K8S_IN_CLUSTER: bool = False
 
-    # Artifact保存先
+    # Artifact保存先 (legacy, Phase 6 cleanup)
     ARTIFACTS_DIR: str = "/tmp/ui-recommender-artifacts"
+
+    # S3 / MinIO設定
+    S3_BUCKET: str = "ui-recommender-artifacts"
+    S3_REGION: str = "us-east-1"
+    S3_ENDPOINT_URL: str = ""  # MinIO: http://minio:9000
+    S3_ENDPOINT_URL_K8S: str = ""  # K8sワーカー用。未設定時はS3_ENDPOINT_URLを使用
+    S3_ACCESS_KEY: str = "minioadmin"
+    S3_SECRET_KEY: str = "minioadmin"
 
     # Worker設定
     WORKER_IMAGE: str = "ui-recommender-worker:latest"

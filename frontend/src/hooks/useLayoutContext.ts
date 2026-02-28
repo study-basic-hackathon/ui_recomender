@@ -1,7 +1,7 @@
 import { useOutletContext } from 'react-router-dom'
 
 type LayoutContext = {
-  refreshJobs: () => void
+  refreshSessions: () => void
 }
 
 export function useLayoutContext() {

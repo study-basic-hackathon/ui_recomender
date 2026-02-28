@@ -3,7 +3,7 @@ set -e
 
 echo "=== Worker Starting ==="
 echo "Mode: ${WORKER_MODE}"
-echo "Job ID: ${JOB_ID}"
+echo "Session: ${SESSION_ID} Iter: ${ITERATION_INDEX}"
 echo "Repository: ${REPO_URL}"
 
 if [ -z "$WORKER_MODE" ]; then

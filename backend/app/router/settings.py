@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 
 from app.di.dependencies import get_db
 from app.repository.setting_repository import SettingRepository
-from app.schema.job_schema import SettingRequest, SettingResponse
+from app.schema.setting_schema import SettingRequest, SettingResponse
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
 

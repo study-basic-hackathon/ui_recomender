@@ -1,31 +1,73 @@
 #!/usr/bin/env python3
-"""Implementation Worker: Clones repo, implements a design proposal via Claude Agent SDK, takes after screenshot."""
+"""Implementation Worker: Clones repo, implements a design proposal via Claude Agent SDK, takes after screenshot.
+
+Session-based: Reads/writes all artifacts via S3. No push, no hostPath, no stdout embedding.
+Generates cumulative patches (base_branch → all changes squashed into one format-patch).
+"""
 
 import asyncio
 import json
 import os
 import subprocess
 import sys
-from datetime import datetime, timezone
 from pathlib import Path
 
+import boto3
+from botocore.config import Config
 from claude_agent_sdk import ClaudeAgentOptions, query
 
 
-def generate_branch_name(proposal_index: int | str) -> str:
-    """Generate a unique branch name like feat/20260217-143052-claude_idea-1."""
-    ts = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
-    return f"feat/{ts}-claude_idea-{proposal_index}"
+def get_s3_client():
+    kwargs = {
+        "service_name": "s3",
+        "region_name": os.environ.get("S3_REGION", "us-east-1"),
+        "config": Config(signature_version="s3v4"),
+    }
+    endpoint = os.environ.get("S3_ENDPOINT_URL")
+    if endpoint:
+        kwargs["endpoint_url"] = endpoint
+        kwargs["aws_access_key_id"] = os.environ.get("S3_ACCESS_KEY", "minioadmin")
+        kwargs["aws_secret_access_key"] = os.environ.get("S3_SECRET_KEY", "minioadmin")
+    return boto3.client(**kwargs)
 
 
-def create_branch(repo_dir: str, branch_name: str) -> None:
-    """Create and checkout a new branch."""
-    subprocess.run(
-        ["git", "checkout", "-b", branch_name],
-        cwd=repo_dir,
-        check=True,
-    )
-    print(f"Created branch: {branch_name}")
+def s3_download(s3, bucket, key, local_path):
+    try:
+        s3.download_file(bucket, key, local_path)
+        return True
+    except Exception as e:
+        print(f"S3 download failed for {key}: {e}", file=sys.stderr)
+        return False
+
+
+def s3_upload_file(s3, bucket, key, local_path, content_type="application/octet-stream"):
+    for attempt in range(3):
+        try:
+            s3.upload_file(
+                local_path, bucket, key,
+                ExtraArgs={"ContentType": content_type},
+            )
+            print(f"Uploaded {key}")
+            return
+        except Exception as e:
+            print(f"S3 upload attempt {attempt + 1} failed for {key}: {e}", file=sys.stderr)
+            if attempt == 2:
+                raise
+
+
+def s3_upload_text(s3, bucket, key, text, content_type="text/plain"):
+    for attempt in range(3):
+        try:
+            s3.put_object(
+                Bucket=bucket, Key=key,
+                Body=text.encode("utf-8"), ContentType=content_type,
+            )
+            print(f"Uploaded {key}")
+            return
+        except Exception as e:
+            print(f"S3 upload attempt {attempt + 1} failed for {key}: {e}", file=sys.stderr)
+            if attempt == 2:
+                raise
 
 
 async def implement_proposal(
@@ -78,44 +120,97 @@ IMPORTANT: The screenshot is critical. Do your best to get the dev server runnin
 
 async def main() -> None:
     # Read environment variables
-    job_id = os.environ["JOB_ID"]
+    session_id = os.environ["SESSION_ID"]
+    iteration_index = int(os.environ["ITERATION_INDEX"])
     repo_url = os.environ["REPO_URL"]
     branch = os.environ.get("BRANCH", "main")
     proposal_index = os.environ["PROPOSAL_INDEX"]
-    artifact_dir = f"/artifacts/{job_id}/proposals/{proposal_index}"
-    repo_dir = "/workspace/repo"
-    os.makedirs(artifact_dir, exist_ok=True)
+    selected_proposal_index = os.environ.get("SELECTED_PROPOSAL_INDEX")
 
-    # Read proposal plan from file (avoids K8s env var size limits)
-    plan_file = f"/artifacts/{job_id}/proposal_{proposal_index}_plan.txt"
-    if Path(plan_file).exists():
-        proposal_plan = Path(plan_file).read_text()
+    bucket = os.environ["S3_BUCKET"]
+    s3 = get_s3_client()
+    tmp_dir = "/tmp/artifacts"
+    repo_dir = "/workspace/repo"
+    os.makedirs(tmp_dir, exist_ok=True)
+
+    s3_prefix = (
+        f"sessions/{session_id}/iterations/{iteration_index}"
+        f"/proposals/{proposal_index}"
+    )
+
+    # Step 1: Download proposal plan from S3
+    plan_key = f"{s3_prefix}/plan.json"
+    local_plan = f"{tmp_dir}/plan.json"
+    print(f"=== Downloading plan from S3: {plan_key} ===")
+    if s3_download(s3, bucket, plan_key, local_plan):
+        proposal_plan = Path(local_plan).read_text()
     else:
+        # Fallback to env var (for backward compat during transition)
         proposal_plan = os.environ.get("PROPOSAL_PLAN", "")
 
     if not proposal_plan:
         print("Error: No proposal plan provided", file=sys.stderr)
         sys.exit(1)
 
-    # Step 1: Clone repository
+    # Step 2: Clone repository
     print("=== Cloning repository ===")
     subprocess.run(
         ["git", "clone", "--depth", "1", "--branch", branch, repo_url, repo_dir],
         check=True,
     )
 
-    # Step 2: Create feature branch
-    branch_name = generate_branch_name(proposal_index)
-    print(f"=== Creating branch: {branch_name} ===")
-    create_branch(repo_dir, branch_name)
+    # Step 2.5: Apply cumulative patch from previous iteration (if iter > 0)
+    if iteration_index > 0 and selected_proposal_index is not None:
+        prev_iter = iteration_index - 1
+        patch_key = (
+            f"sessions/{session_id}/iterations/{prev_iter}"
+            f"/proposals/{selected_proposal_index}/changes.diff"
+        )
+        local_patch = f"{tmp_dir}/parent.diff"
+        print(f"=== Downloading patch from S3: {patch_key} ===")
+        if s3_download(s3, bucket, patch_key, local_patch):
+            print("=== Applying cumulative patch ===")
+            result = subprocess.run(
+                ["git", "am", "--3way", local_patch],
+                cwd=repo_dir,
+                capture_output=True,
+                text=True,
+            )
+            if result.returncode != 0:
+                print(f"git am failed: {result.stderr}", file=sys.stderr)
+                print("Falling back to git apply...")
+                subprocess.run(
+                    ["git", "am", "--abort"], cwd=repo_dir, capture_output=True
+                )
+                subprocess.run(
+                    ["git", "apply", "--3way", local_patch],
+                    cwd=repo_dir,
+                    check=True,
+                )
+                subprocess.run(["git", "add", "-A"], cwd=repo_dir, check=True)
+                subprocess.run(
+                    ["git", "commit", "-m", "apply base patch"],
+                    cwd=repo_dir,
+                    check=True,
+                )
+            print("=== Cumulative patch applied successfully ===")
+        else:
+            print(
+                f"WARNING: Patch not found at s3://{bucket}/{patch_key}",
+                file=sys.stderr,
+            )
 
-    # Step 3: Implement the proposal + take screenshot via Claude Agent SDK
-    screenshot_path = f"{artifact_dir}/after.png"
+    # Step 3: Create local branch and implement the proposal
+    branch_name = f"local/session-{session_id[:8]}-iter{iteration_index}-prop{proposal_index}"
+    subprocess.run(["git", "checkout", "-b", branch_name], cwd=repo_dir, check=True)
+    print(f"=== Created local branch: {branch_name} ===")
+
+    screenshot_path = f"{tmp_dir}/after.png"
     print("=== Implementing design proposal ===")
     await implement_proposal(repo_dir, proposal_plan, screenshot_path)
 
-    # Step 4: Commit all changes and generate patch
-    print("=== Saving changes diff ===")
+    # Step 4: Generate cumulative patch (squash everything since base_branch)
+    print("=== Generating cumulative patch ===")
     # Parse proposal plan to get title for commit message
     try:
         plan_data = json.loads(proposal_plan)
@@ -123,37 +218,48 @@ async def main() -> None:
     except (json.JSONDecodeError, AttributeError):
         commit_title = f"variant-{proposal_index}"
 
-    # Stage all changes (new, modified, deleted files)
+    # Stage all changes
     subprocess.run(["git", "add", "-A"], cwd=repo_dir, check=True)
-    # Commit with proposal title as message
+    # Squash all changes into a single commit relative to base_branch
+    subprocess.run(
+        ["git", "reset", "--soft", f"origin/{branch}"],
+        cwd=repo_dir,
+        check=True,
+    )
     subprocess.run(
         ["git", "commit", "-m", f"feat: {commit_title}"],
         cwd=repo_dir,
         check=True,
     )
-    # Generate patch using format-patch (stable, portable format)
+    # Generate format-patch (cumulative: base_branch → HEAD)
     patch_result = subprocess.run(
         ["git", "format-patch", "-1", "HEAD", "--stdout"],
         capture_output=True, text=True, cwd=repo_dir,
+        check=True,
     )
-    with open(f"{artifact_dir}/changes.diff", "w") as f:
+    local_diff = f"{tmp_dir}/changes.diff"
+    with open(local_diff, "w") as f:
         f.write(patch_result.stdout)
 
-    # Output artifacts to stdout with markers so Backend can extract from pod logs
-    import base64
+    # Step 5: Upload results to S3
+    print("=== Uploading results to S3 ===")
 
-    diff_file = Path(f"{artifact_dir}/changes.diff")
-    if diff_file.exists():
-        print("===ARTIFACT:changes.diff:START===")
-        print(diff_file.read_text())
-        print("===ARTIFACT:changes.diff:END===")
+    # Upload after screenshot
+    if Path(screenshot_path).exists():
+        s3_upload_file(
+            s3, bucket,
+            f"{s3_prefix}/after.png",
+            screenshot_path,
+            content_type="image/png",
+        )
 
-    after_path = Path(f"{artifact_dir}/after.png")
-    if after_path.exists():
-        b64 = base64.b64encode(after_path.read_bytes()).decode()
-        print("===ARTIFACT:after.png:START===")
-        print(b64)
-        print("===ARTIFACT:after.png:END===")
+    # Upload cumulative patch
+    s3_upload_text(
+        s3, bucket,
+        f"{s3_prefix}/changes.diff",
+        patch_result.stdout,
+        content_type="text/plain",
+    )
 
     print("=== Implementation Complete ===")
 

@@ -10,17 +10,18 @@
 #     - テスト時にモックに差し替え可能
 # - 構成
 #     - database.py: DB接続設定
-#     - *_repository_interface.py: リポジトリインターフェース
-#     - *_repository_sql.py: SQL実装
+#     - *_repository.py: リポジトリ実装
 
 from .database import SessionLocal
-from .job_repository import JobRepository
+from .iteration_repository import IterationRepository
 from .proposal_repository import ProposalRepository
+from .session_repository import SessionRepository
 from .setting_repository import SettingRepository
 
 __all__ = [
     "SessionLocal",
-    "JobRepository",
+    "SessionRepository",
+    "IterationRepository",
     "ProposalRepository",
     "SettingRepository",
 ]

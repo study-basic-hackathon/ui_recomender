@@ -1,11 +1,11 @@
 import { useState, useEffect } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
-import { createJob, getSettings } from '../services/api'
+import { createSession, getSettings } from '../services/api'
 import { useLayoutContext } from '../hooks/useLayoutContext'
 
 export default function Dashboard() {
   const navigate = useNavigate()
-  const { refreshJobs } = useLayoutContext()
+  const { refreshSessions } = useLayoutContext()
   const [instruction, setInstruction] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
@@ -35,9 +35,13 @@ export default function Dashboard() {
     setSubmitError(null)
 
     try {
-      const job = await createJob({ repo_url: repoUrl, branch: branch || 'main', instruction })
-      refreshJobs()
-      navigate(`/jobs/${job.id}`)
+      const session = await createSession({
+        repo_url: repoUrl,
+        branch: branch || 'main',
+        instruction,
+      })
+      refreshSessions()
+      navigate(`/sessions/${session.id}`)
     } catch (err) {
       setSubmitError((err as Error).message)
     } finally {
@@ -132,7 +136,7 @@ export default function Dashboard() {
             cursor: isSubmitting || !repoUrl ? 'not-allowed' : 'pointer',
           }}
         >
-          {isSubmitting ? 'Creating...' : 'Create Job'}
+          {isSubmitting ? 'Creating...' : 'Start Session'}
         </button>
       </form>
     </div>

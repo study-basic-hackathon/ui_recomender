@@ -4,7 +4,7 @@ import { createBrowserRouter, RouterProvider } from 'react-router-dom'
 import './index.css'
 import Layout from './components/Layout'
 import Dashboard from './pages/Dashboard'
-import JobDetail from './pages/JobDetail'
+import SessionDetail from './pages/SessionDetail'
 import Settings from './pages/Settings'
 import ErrorPage from './pages/ErrorPage'
 
@@ -15,7 +15,7 @@ const router = createBrowserRouter([
     errorElement: <ErrorPage />,
     children: [
       { index: true, element: <Dashboard /> },
-      { path: 'jobs/:jobId', element: <JobDetail /> },
+      { path: 'sessions/:sessionId', element: <SessionDetail /> },
       { path: 'settings', element: <Settings /> },
     ],
   },

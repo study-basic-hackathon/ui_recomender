@@ -1,29 +1,29 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Outlet } from 'react-router-dom'
-import { listJobs, type Job } from '../services/api'
+import { listSessions, type Session } from '../services/api'
 import Sidebar from './Sidebar'
 
 type LayoutContext = {
-  refreshJobs: () => void
+  refreshSessions: () => void
 }
 
 export default function Layout() {
   const [sidebarOpen, setSidebarOpen] = useState(true)
-  const [jobs, setJobs] = useState<Job[]>([])
+  const [sessions, setSessions] = useState<Session[]>([])
 
-  const refreshJobs = useCallback(() => {
-    listJobs()
-      .then(setJobs)
+  const refreshSessions = useCallback(() => {
+    listSessions()
+      .then(setSessions)
       .catch(() => {})
   }, [])
 
   useEffect(() => {
-    refreshJobs()
-  }, [refreshJobs])
+    refreshSessions()
+  }, [refreshSessions])
 
   return (
     <div style={{ display: 'flex', minHeight: '100vh' }}>
-      <Sidebar jobs={jobs} isOpen={sidebarOpen} onToggle={() => setSidebarOpen(false)} />
+      <Sidebar sessions={sessions} isOpen={sidebarOpen} onToggle={() => setSidebarOpen(false)} />
       <div
         style={{
           flex: 1,
@@ -59,7 +59,7 @@ export default function Layout() {
             UI Recommender
           </span>
         </div>
-        <Outlet context={{ refreshJobs } satisfies LayoutContext} />
+        <Outlet context={{ refreshSessions } satisfies LayoutContext} />
       </div>
     </div>
   )

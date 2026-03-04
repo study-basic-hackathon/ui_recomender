@@ -14,7 +14,7 @@ from pathlib import Path
 
 import boto3
 from botocore.config import Config
-from claude_agent_sdk import ClaudeAgentOptions, query, AssistantMessage, TextBlock, ToolUseBlock
+from claude_agent_sdk import ClaudeAgentOptions, ClaudeSDKClient, query, AssistantMessage, TextBlock, ToolUseBlock
 from claude_agent_sdk.types import StreamEvent
 
 
@@ -99,36 +99,18 @@ def s3_upload_text(s3, bucket, key, text, content_type="text/plain"):
                 raise
 
 
-async def implement_proposal(
-    repo_dir: str, proposal_plan: str, screenshot_output: str
-) -> None:
-    """Use Claude Agent SDK to implement the design proposal, start dev server, and take screenshot."""
+async def implement_changes(repo_dir: str, proposal_plan: str) -> None:
+    """Use Claude Agent SDK to implement the design proposal."""
     prompt = f"""You are implementing UI changes to a web application located at {repo_dir}.
 
 Here is the specific design proposal to implement:
 
 {proposal_plan}
 
-Follow these steps in order:
-
-## Step 1: Implement the changes
 - Implement all the changes described in the plan
 - All file modifications must be correct and complete
 - Follow existing code conventions and patterns
 - Do not leave any TODO comments or incomplete implementations
-
-## Step 2: Start the dev server and take a screenshot
-After implementing the changes:
-1. Investigate how to start the dev server for this project (check package.json scripts, README, etc.)
-2. Install dependencies if needed
-3. Start the dev server in the background using Bash (e.g. `npm run dev &` or whatever is appropriate)
-4. Wait for the server to become ready (poll with curl until it responds)
-5. Once the server is ready, take a screenshot by running:
-   `node /usr/local/bin/take-screenshot.mjs <server_url> {screenshot_output}`
-   where <server_url> is the URL the dev server is listening on (e.g. http://localhost:5173)
-6. Make sure the screenshot file was created at {screenshot_output}
-
-IMPORTANT: The screenshot is critical. Do your best to get the dev server running and take the screenshot.
 """
 
     current_tool = None
@@ -163,13 +145,88 @@ IMPORTANT: The screenshot is critical. Do your best to get the dev server runnin
                 tool_input_chunks = ""
             continue
 
-        # Log progress messages from completed AssistantMessage
         if isinstance(msg, AssistantMessage):
             for block in msg.content:
                 if isinstance(block, TextBlock):
                     emit_log("implementing", block.text[:200], detail=block.text)
                 elif isinstance(block, ToolUseBlock):
                     _emit_tool_detail("implementing", block.name, json.dumps(block.input))
+
+
+async def _process_messages(client: ClaudeSDKClient, phase: str) -> None:
+    """Process messages from ClaudeSDKClient, emitting logs for a given phase."""
+    current_tool = None
+    tool_input_chunks = ""
+
+    async for msg in client.receive_response():
+        if isinstance(msg, StreamEvent):
+            event = msg.event
+            etype = event.get("type")
+            if etype == "content_block_start":
+                content_block = event.get("content_block", {})
+                if content_block.get("type") == "tool_use":
+                    current_tool = content_block.get("name")
+                    tool_input_chunks = ""
+            elif etype == "content_block_delta":
+                delta = event.get("delta", {})
+                if delta.get("type") == "input_json_delta":
+                    tool_input_chunks += delta.get("partial_json", "")
+            elif etype == "content_block_stop":
+                if current_tool and tool_input_chunks:
+                    _emit_tool_detail(phase, current_tool, tool_input_chunks)
+                current_tool = None
+                tool_input_chunks = ""
+            continue
+
+        if isinstance(msg, AssistantMessage):
+            for block in msg.content:
+                if isinstance(block, TextBlock):
+                    emit_log(phase, block.text[:200], detail=block.text)
+                elif isinstance(block, ToolUseBlock):
+                    _emit_tool_detail(phase, block.name, json.dumps(block.input))
+
+
+async def launch_and_screenshot(repo_dir: str, screenshot_output: str) -> None:
+    """Launch dev server and take screenshot in a single session.
+
+    Uses ClaudeSDKClient to keep the same conversation context across
+    two query() calls so the agent remembers the dev server URL.
+    """
+    options = ClaudeAgentOptions(
+        allowed_tools=["Read", "Bash", "Glob", "Grep"],
+        cwd=repo_dir,
+        max_turns=20,
+        max_budget_usd=1.0,
+        include_partial_messages=True,
+    )
+
+    async with ClaudeSDKClient(options=options) as client:
+        # Phase 1: install deps + start dev server
+        emit_log("launching", "Launching project")
+        await client.query(f"""You need to launch the web application at {repo_dir}.
+
+Follow these steps:
+1. Investigate how to start the dev server (check package.json scripts, README, etc.)
+2. Install the project's dependencies if needed (e.g. `npm install` in the project directory)
+3. Start the dev server in the background using Bash (e.g. `npm run dev &` or whatever is appropriate)
+4. Wait for the server to become ready (poll with curl until it responds)
+
+IMPORTANT: Make sure the dev server is running and responding before finishing.
+""")
+        await _process_messages(client, "launching")
+
+        # Phase 2: take screenshot (same session, so dev server URL is remembered)
+        emit_log("screenshot", "Taking after screenshot")
+        await client.query(f"""Now take a screenshot of the running application.
+
+You already know the dev server URL from the previous step. Use it to take a screenshot:
+1. Run: `node /usr/local/bin/take-screenshot.mjs <server_url> {screenshot_output}`
+   where <server_url> is the URL the dev server is listening on
+2. Verify the screenshot file was created at {screenshot_output}
+
+NOTE: Playwright and Chromium are pre-installed globally in this container. Do NOT install playwright or run `npx playwright install`. Just run `node /usr/local/bin/take-screenshot.mjs <url> <output>` directly.
+""")
+        await _process_messages(client, "screenshot")
 
 
 async def main() -> None:
@@ -261,7 +318,10 @@ async def main() -> None:
 
     screenshot_path = f"{tmp_dir}/after.png"
     emit_log("implementing", "Implementing design proposal")
-    await implement_proposal(repo_dir, proposal_plan, screenshot_path)
+    await implement_changes(repo_dir, proposal_plan)
+
+    # Launch + screenshot in a single session (shares dev server URL context)
+    await launch_and_screenshot(repo_dir, screenshot_path)
 
     # Step 4: Generate cumulative patch (squash everything since base_branch)
     emit_log("uploading", "Generating cumulative patch")

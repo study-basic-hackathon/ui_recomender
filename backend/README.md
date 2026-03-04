@@ -37,6 +37,27 @@ docker-compose exec app uv run alembic upgrade head
 docker-compose exec app uv run alembic history
 ```
 
+## デプロイ手順
+
+Backend と Worker の変更を反映する手順です。
+
+### Backend (FastAPI) の再起動
+```bash
+cd backend
+docker compose restart app
+```
+
+### Worker イメージの再ビルド・K8s ロード
+```bash
+# 1. イメージをビルド
+docker build -t ui-recommender-worker:latest -f docker/worker.Dockerfile .
+
+# 2. Docker Desktop の組み込み K8s にロード
+docker save ui-recommender-worker:latest | docker exec -i desktop-control-plane ctr -n k8s.io images import -
+```
+
+> **Note:** Worker Pod は `imagePullPolicy: Never` で運用しているため、レジストリへの push は不要です。
+
 ## 技術スタック
 - Python 3.13
 - FastAPI 0.129.0

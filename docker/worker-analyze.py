@@ -397,7 +397,11 @@ async def main() -> None:
 
     # Step 4: Generate design proposals via Claude Agent SDK
     emit_log("analyzing", "Generating design proposals")
-    proposals = await generate_proposals(repo_dir, instruction, num_proposals)
+    try:
+        proposals = await generate_proposals(repo_dir, instruction, num_proposals)
+    except Exception as e:
+        emit_log("analyzing", f"Analysis interrupted: {e}", detail=str(e))
+        proposals = []
     emit_log("analyzing", f"Generated {len(proposals)} proposals")
 
     # Step 5: Upload results to S3

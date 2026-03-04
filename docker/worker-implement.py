@@ -366,7 +366,10 @@ async def main() -> None:
 
     screenshot_path = f"{tmp_dir}/after.png"
     emit_log("implementing", "Implementing design proposal")
-    await implement_changes(repo_dir, proposal_plan)
+    try:
+        await implement_changes(repo_dir, proposal_plan)
+    except Exception as e:
+        emit_log("implementing", f"Implementation interrupted: {e}", detail=str(e))
 
     # Launch + screenshot with retry loop
     max_retries = 2  # up to 3 total attempts

@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.di.container import DIContainer
 from app.repository.setting_repository import SettingRepository
+from app.service.log_stream_service import LogStreamService
 from app.service.s3_service import S3Service
 
 
@@ -19,3 +20,7 @@ def get_setting_repository(db: Session = Depends(get_db)) -> SettingRepository:
 
 def get_s3_service() -> S3Service:
     return S3Service()
+
+
+def get_log_stream_service() -> LogStreamService:
+    return DIContainer.get_log_stream_service()

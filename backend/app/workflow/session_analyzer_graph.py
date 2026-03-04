@@ -22,6 +22,15 @@ async def create_k8s_job(state: SessionAnalyzerState) -> dict:
         num_proposals=state["num_proposals"],
         selected_proposal_index=state.get("selected_proposal_index"),
     )
+
+    from app.di.container import DIContainer
+
+    DIContainer.get_log_stream_service().register_job(
+        session_id=state["session_id"],
+        job_name=job_name,
+        job_type="analyze",
+    )
+
     return {"k8s_job_name": job_name, "status": "running"}
 
 

@@ -14,7 +14,36 @@ from pathlib import Path
 
 import boto3
 from botocore.config import Config
-from claude_agent_sdk import ClaudeAgentOptions, query
+from claude_agent_sdk import ClaudeAgentOptions, query, AssistantMessage, TextBlock, ToolUseBlock
+from claude_agent_sdk.types import StreamEvent
+
+
+def emit_log(phase: str, message: str, detail: str | None = None) -> None:
+    entry = {
+        "phase": phase,
+        "message": message,
+    }
+    if detail:
+        entry["detail"] = detail
+    print(f"@@LOG@@{json.dumps(entry, ensure_ascii=False)}", flush=True)
+
+
+def _emit_tool_detail(phase: str, tool_name: str, raw_input: str) -> None:
+    """Parse tool input JSON and emit a human-readable log line."""
+    try:
+        params = json.loads(raw_input)
+    except json.JSONDecodeError:
+        return
+
+    if tool_name == "Read":
+        emit_log(phase, f"Reading: {params.get('file_path', '?')}")
+    elif tool_name in ("Write", "Edit"):
+        emit_log(phase, f"Editing: {params.get('file_path', '?')}")
+    elif tool_name == "Bash":
+        cmd = params.get("command", "?")
+        emit_log(phase, f"Running: {cmd[:100]}")
+    elif tool_name in ("Glob", "Grep"):
+        emit_log(phase, f"Searching: {params.get('pattern', '?')}")
 
 
 def get_s3_client():
@@ -102,6 +131,9 @@ After implementing the changes:
 IMPORTANT: The screenshot is critical. Do your best to get the dev server running and take the screenshot.
 """
 
+    current_tool = None
+    tool_input_chunks = ""
+
     async for msg in query(
         prompt=prompt,
         options=ClaudeAgentOptions(
@@ -109,13 +141,35 @@ IMPORTANT: The screenshot is critical. Do your best to get the dev server runnin
             cwd=repo_dir,
             max_turns=40,
             max_budget_usd=3.0,
+            include_partial_messages=True,
         ),
     ):
-        # Log progress messages
-        if hasattr(msg, "content"):
+        if isinstance(msg, StreamEvent):
+            event = msg.event
+            etype = event.get("type")
+            if etype == "content_block_start":
+                content_block = event.get("content_block", {})
+                if content_block.get("type") == "tool_use":
+                    current_tool = content_block.get("name")
+                    tool_input_chunks = ""
+            elif etype == "content_block_delta":
+                delta = event.get("delta", {})
+                if delta.get("type") == "input_json_delta":
+                    tool_input_chunks += delta.get("partial_json", "")
+            elif etype == "content_block_stop":
+                if current_tool and tool_input_chunks:
+                    _emit_tool_detail("implementing", current_tool, tool_input_chunks)
+                current_tool = None
+                tool_input_chunks = ""
+            continue
+
+        # Log progress messages from completed AssistantMessage
+        if isinstance(msg, AssistantMessage):
             for block in msg.content:
-                if hasattr(block, "text"):
-                    print(f"Agent: {block.text[:200]}")
+                if isinstance(block, TextBlock):
+                    emit_log("implementing", block.text[:200], detail=block.text)
+                elif isinstance(block, ToolUseBlock):
+                    _emit_tool_detail("implementing", block.name, json.dumps(block.input))
 
 
 async def main() -> None:
@@ -141,7 +195,7 @@ async def main() -> None:
     # Step 1: Download proposal plan from S3
     plan_key = f"{s3_prefix}/plan.json"
     local_plan = f"{tmp_dir}/plan.json"
-    print(f"=== Downloading plan from S3: {plan_key} ===")
+    emit_log("cloning", f"Downloading plan from S3: {plan_key}")
     if s3_download(s3, bucket, plan_key, local_plan):
         proposal_plan = Path(local_plan).read_text()
     else:
@@ -153,7 +207,7 @@ async def main() -> None:
         sys.exit(1)
 
     # Step 2: Clone repository
-    print("=== Cloning repository ===")
+    emit_log("cloning", "Cloning repository")
     subprocess.run(
         ["git", "clone", "--depth", "1", "--branch", branch, repo_url, repo_dir],
         check=True,
@@ -167,9 +221,9 @@ async def main() -> None:
             f"/proposals/{selected_proposal_index}/changes.diff"
         )
         local_patch = f"{tmp_dir}/parent.diff"
-        print(f"=== Downloading patch from S3: {patch_key} ===")
+        emit_log("patching", f"Downloading patch from S3: {patch_key}")
         if s3_download(s3, bucket, patch_key, local_patch):
-            print("=== Applying cumulative patch ===")
+            emit_log("patching", "Applying cumulative patch")
             result = subprocess.run(
                 ["git", "am", "--3way", local_patch],
                 cwd=repo_dir,
@@ -193,7 +247,7 @@ async def main() -> None:
                     cwd=repo_dir,
                     check=True,
                 )
-            print("=== Cumulative patch applied successfully ===")
+            emit_log("patching", "Cumulative patch applied successfully")
         else:
             print(
                 f"WARNING: Patch not found at s3://{bucket}/{patch_key}",
@@ -203,14 +257,14 @@ async def main() -> None:
     # Step 3: Create local branch and implement the proposal
     branch_name = f"local/session-{session_id[:8]}-iter{iteration_index}-prop{proposal_index}"
     subprocess.run(["git", "checkout", "-b", branch_name], cwd=repo_dir, check=True)
-    print(f"=== Created local branch: {branch_name} ===")
+    emit_log("implementing", f"Created local branch: {branch_name}")
 
     screenshot_path = f"{tmp_dir}/after.png"
-    print("=== Implementing design proposal ===")
+    emit_log("implementing", "Implementing design proposal")
     await implement_proposal(repo_dir, proposal_plan, screenshot_path)
 
     # Step 4: Generate cumulative patch (squash everything since base_branch)
-    print("=== Generating cumulative patch ===")
+    emit_log("uploading", "Generating cumulative patch")
     # Parse proposal plan to get title for commit message
     try:
         plan_data = json.loads(proposal_plan)
@@ -242,7 +296,7 @@ async def main() -> None:
         f.write(patch_result.stdout)
 
     # Step 5: Upload results to S3
-    print("=== Uploading results to S3 ===")
+    emit_log("uploading", "Uploading results to S3")
 
     # Upload after screenshot
     if Path(screenshot_path).exists():
@@ -261,7 +315,7 @@ async def main() -> None:
         content_type="text/plain",
     )
 
-    print("=== Implementation Complete ===")
+    emit_log("completed", "Implementation complete")
 
 
 if __name__ == "__main__":

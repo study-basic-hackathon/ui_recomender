@@ -5,6 +5,7 @@ Session-based: This is the ONLY worker that pushes to the remote repository.
 """
 
 import asyncio
+import json
 import os
 import re
 import subprocess
@@ -14,7 +15,7 @@ from pathlib import Path
 
 import boto3
 from botocore.config import Config
-from claude_agent_sdk import ClaudeAgentOptions, query
+from claude_agent_sdk import ClaudeAgentOptions, query, AssistantMessage, TextBlock
 
 
 def get_s3_client():
@@ -87,6 +88,7 @@ Please do the following:
 IMPORTANT: You MUST output the PR URL in that exact format so it can be extracted.
 """
     collected_text: list[str] = []
+
     async for msg in query(
         prompt=prompt,
         options=ClaudeAgentOptions(
@@ -94,11 +96,10 @@ IMPORTANT: You MUST output the PR URL in that exact format so it can be extracte
             cwd=repo_dir, max_turns=15, max_budget_usd=1.0,
         ),
     ):
-        if hasattr(msg, "content"):
+        if isinstance(msg, AssistantMessage):
             for block in msg.content:
-                if hasattr(block, "text"):
+                if isinstance(block, TextBlock):
                     collected_text.append(block.text)
-                    print(f"Agent: {block.text[:200]}")
 
     full_text = "\n".join(collected_text)
     for line in full_text.split("\n"):
@@ -136,10 +137,8 @@ async def main() -> None:
         print(f"Error: Patch not found at s3://{bucket}/{patch_key}", file=sys.stderr)
         sys.exit(1)
     diff_content = Path(local_patch).read_text()
-    print(f"=== Patch loaded ({len(diff_content)} chars) ===")
 
     # Step 2: Clone repository (with token auth for push)
-    print("=== Cloning repository ===")
     repo_dir = "/workspace/repo"
     if repo_url.startswith("https://github.com/"):
         auth_repo_url = repo_url.replace(
@@ -157,11 +156,9 @@ async def main() -> None:
     # Step 3: Create a new branch
     ts = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
     branch_name = f"feat/{ts}-ui-session-{session_id[:8]}"
-    print(f"=== Creating branch: {branch_name} ===")
     subprocess.run(["git", "checkout", "-b", branch_name], cwd=repo_dir, check=True)
 
     # Step 4: Apply the patch
-    print("=== Applying patch ===")
     result = subprocess.run(
         ["git", "am", "--3way", local_patch],
         cwd=repo_dir, capture_output=True, text=True,
@@ -181,7 +178,6 @@ async def main() -> None:
     subprocess.run(["git", "fetch", "--unshallow"], cwd=repo_dir, capture_output=True)
 
     # Step 6: Push and create PR via Agent SDK
-    print("=== Creating PR via Agent SDK ===")
     diff_summary = diff_content[:10000]
     pr_url = await push_and_create_pr(repo_dir, branch_name, branch, diff_summary)
 
@@ -195,8 +191,6 @@ async def main() -> None:
     else:
         print("Error: Failed to extract PR URL from agent output", file=sys.stderr)
         sys.exit(1)
-
-    print("=== PR Creation Complete ===")
 
 
 if __name__ == "__main__":

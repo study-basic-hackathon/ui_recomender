@@ -20,6 +20,16 @@ async def create_k8s_job(state: SessionCreatePRState) -> dict:
         branch=state["branch"],
         proposal_index=state["proposal_index"],
     )
+
+    from app.di.container import DIContainer
+
+    DIContainer.get_log_stream_service().register_job(
+        session_id=state["session_id"],
+        job_name=job_name,
+        job_type="createpr",
+        proposal_index=state["proposal_index"],
+    )
+
     return {"k8s_job_name": job_name, "status": "running"}
 
 

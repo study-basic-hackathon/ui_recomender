@@ -1,16 +1,30 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
 import { useParams } from 'react-router-dom'
 import { useSessionPolling } from '../hooks/useSessionPolling'
+import { useLogStream } from '../hooks/useLogStream'
 import { createPR, iterate, getSession } from '../services/api'
 import type { Iteration, Proposal } from '../services/api'
 import { useLayoutContext } from '../hooks/useLayoutContext'
 import StatusBadge from '../components/StatusBadge'
 import ProposalCard from '../components/ProposalCard'
+import LogPanel from '../components/LogPanel'
 
 export default function SessionDetail() {
   const { sessionId } = useParams<{ sessionId: string }>()
   const { refreshSessions } = useLayoutContext()
   const { session, error, isLoading, refetch } = useSessionPolling(sessionId ?? null)
+
+  // Compute isInProgress early so useLogStream can be called unconditionally
+  const latestIterationForHook =
+    session && session.iterations.length > 0
+      ? session.iterations[session.iterations.length - 1]
+      : null
+  const iterationStatusForHook = latestIterationForHook?.status ?? 'pending'
+  const isInProgressForHook = ['pending', 'analyzing', 'implementing'].includes(
+    iterationStatusForHook,
+  )
+  const logStreamState = useLogStream(sessionId ?? null, isInProgressForHook)
+
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null)
   const [prLoading, setPrLoading] = useState(false)
   const [prError, setPrError] = useState<string | null>(null)
@@ -222,24 +236,9 @@ export default function SessionDetail() {
         </div>
       )}
 
-      {/* Progress indicator */}
-      {isInProgress && (
-        <div
-          style={{
-            padding: '16px',
-            backgroundColor: '#f0f9ff',
-            borderRadius: '6px',
-            marginBottom: '16px',
-            textAlign: 'center',
-            fontSize: '16px',
-            color: '#1e40af',
-          }}
-        >
-          {iterationStatus === 'pending' && 'Queued...'}
-          {iterationStatus === 'analyzing' && 'Analyzing repository and generating proposals...'}
-          {iterationStatus === 'implementing' &&
-            'Implementing all proposals... This may take a few minutes.'}
-        </div>
+      {/* Progress indicator with log streaming */}
+      {(isInProgress || logStreamState.jobs.size > 0) && (
+        <LogPanel logState={logStreamState} defaultCollapsed={!isInProgress} />
       )}
 
       {/* Completed: show proposals */}

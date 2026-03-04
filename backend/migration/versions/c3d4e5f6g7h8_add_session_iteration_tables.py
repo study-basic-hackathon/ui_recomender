@@ -9,6 +9,7 @@ from typing import Sequence, Union
 
 from alembic import op
 import sqlalchemy as sa
+from sqlalchemy.dialects import postgresql
 
 
 # revision identifiers, used by Alembic.
@@ -16,6 +17,14 @@ revision: str = "c3d4e5f6g7h8"
 down_revision: Union[str, None] = "b2c3d4e5f6g7"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
+
+# Define enum types (create_type=False prevents auto-creation within create_table)
+sessionstatus = postgresql.ENUM("active", "completed", "archived", name="sessionstatus", create_type=False)
+iterationstatus = postgresql.ENUM(
+    "pending", "analyzing", "analyzed", "implementing", "completed", "failed",
+    name="iterationstatus", create_type=False,
+)
+proposalstatus = postgresql.ENUM("pending", "implementing", "completed", "failed", name="proposalstatus", create_type=False)
 
 
 def upgrade() -> None:
@@ -26,18 +35,18 @@ def upgrade() -> None:
     op.execute("DROP TYPE IF EXISTS proposalstatus")
     op.execute("DROP TYPE IF EXISTS jobstatus")
 
+    # Create enum types explicitly
+    sessionstatus.create(op.get_bind(), checkfirst=True)
+    iterationstatus.create(op.get_bind(), checkfirst=True)
+    proposalstatus.create(op.get_bind(), checkfirst=True)
+
     # Sessions table
     op.create_table(
         "sessions",
         sa.Column("id", sa.Uuid(), nullable=False),
         sa.Column("repo_url", sa.String(length=500), nullable=False),
         sa.Column("base_branch", sa.String(length=200), nullable=False, server_default="main"),
-        sa.Column(
-            "status",
-            sa.Enum("active", "completed", "archived", name="sessionstatus"),
-            nullable=False,
-            server_default="active",
-        ),
+        sa.Column("status", sessionstatus, nullable=False, server_default="active"),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=True),
         sa.PrimaryKeyConstraint("id"),
@@ -51,20 +60,7 @@ def upgrade() -> None:
         sa.Column("iteration_index", sa.Integer(), nullable=False),
         sa.Column("instruction", sa.Text(), nullable=False),
         sa.Column("selected_proposal_index", sa.Integer(), nullable=True),
-        sa.Column(
-            "status",
-            sa.Enum(
-                "pending",
-                "analyzing",
-                "analyzed",
-                "implementing",
-                "completed",
-                "failed",
-                name="iterationstatus",
-            ),
-            nullable=False,
-            server_default="pending",
-        ),
+        sa.Column("status", iterationstatus, nullable=False, server_default="pending"),
         sa.Column("before_screenshot_key", sa.String(length=500), nullable=True),
         sa.Column("error_message", sa.Text(), nullable=True),
         sa.Column("k8s_analyzer_job_name", sa.String(length=200), nullable=True),
@@ -91,18 +87,7 @@ def upgrade() -> None:
         sa.Column("plan", sa.Text(), nullable=False),
         sa.Column("files", sa.Text(), nullable=True),
         sa.Column("complexity", sa.String(length=20), nullable=True),
-        sa.Column(
-            "status",
-            sa.Enum(
-                "pending",
-                "implementing",
-                "completed",
-                "failed",
-                name="proposalstatus",
-            ),
-            nullable=False,
-            server_default="pending",
-        ),
+        sa.Column("status", proposalstatus, nullable=False, server_default="pending"),
         sa.Column("after_screenshot_key", sa.String(length=500), nullable=True),
         sa.Column("diff_key", sa.Text(), nullable=True),
         sa.Column("pr_url", sa.String(length=500), nullable=True),

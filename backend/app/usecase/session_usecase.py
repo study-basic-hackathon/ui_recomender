@@ -27,6 +27,38 @@ from app.workflow.session_implementation_graph import build_session_implementati
 logger = logging.getLogger(__name__)
 
 
+def _update_iteration_status_with_retry(
+    iter_repo: IterationRepository,
+    iteration_id: UUID,
+    new_status: IterationStatus,
+    max_retries: int = 3,
+    **kwargs: object,
+) -> Iteration | None:
+    """Update iteration status with retry on version mismatch."""
+    for attempt in range(max_retries):
+        iteration = iter_repo.get_by_id(iteration_id)
+        if not iteration:
+            return None
+        result = iter_repo.update_status_optimistic(
+            iteration_id, iteration.version, new_status, **kwargs
+        )
+        if result:
+            return result
+        logger.warning(
+            "Iteration %s status update to %s failed (attempt %d), retrying...",
+            iteration_id,
+            new_status,
+            attempt + 1,
+        )
+    logger.error(
+        "Failed to update iteration %s to %s after %d retries",
+        iteration_id,
+        new_status,
+        max_retries,
+    )
+    return None
+
+
 class CreateSessionUseCase:
     """Create a new session and trigger the first analysis."""
 
@@ -231,8 +263,8 @@ async def _run_session_analysis(
             logger.error("Iteration %s not found", iteration_id)
             return
 
-        iter_repo.update_status_optimistic(
-            UUID(iteration_id), iteration.version, IterationStatus.ANALYZING
+        _update_iteration_status_with_retry(
+            iter_repo, UUID(iteration_id), IterationStatus.ANALYZING
         )
 
         graph = build_session_analyzer_graph()
@@ -254,11 +286,6 @@ async def _run_session_analysis(
         )
 
         if result.get("proposals"):
-            # Refresh iteration for current version
-            iteration = iter_repo.get_by_id(UUID(iteration_id))
-            if not iteration:
-                return
-
             proposals = []
             for i, prop in enumerate(result["proposals"]):
                 p = Proposal(
@@ -273,9 +300,9 @@ async def _run_session_analysis(
                 )
                 proposals.append(proposal_repo.create(p))
 
-            iter_repo.update_status_optimistic(
+            _update_iteration_status_with_retry(
+                iter_repo,
                 UUID(iteration_id),
-                iteration.version,
                 IterationStatus.ANALYZED,
                 before_screenshot_key=result.get("before_screenshot_key"),
             )
@@ -287,13 +314,9 @@ async def _run_session_analysis(
             )
 
             # Auto-trigger implementation for ALL proposals
-            iteration = iter_repo.get_by_id(UUID(iteration_id))
-            if iteration:
-                iter_repo.update_status_optimistic(
-                    UUID(iteration_id),
-                    iteration.version,
-                    IterationStatus.IMPLEMENTING,
-                )
+            _update_iteration_status_with_retry(
+                iter_repo, UUID(iteration_id), IterationStatus.IMPLEMENTING
+            )
             for proposal in proposals:
                 asyncio.create_task(
                     _run_session_implementation(
@@ -310,14 +333,12 @@ async def _run_session_analysis(
                 )
         else:
             error = result.get("error", "No proposals generated")
-            iteration = iter_repo.get_by_id(UUID(iteration_id))
-            if iteration:
-                iter_repo.update_status_optimistic(
-                    UUID(iteration_id),
-                    iteration.version,
-                    IterationStatus.FAILED,
-                    error_message=error,
-                )
+            _update_iteration_status_with_retry(
+                iter_repo,
+                UUID(iteration_id),
+                IterationStatus.FAILED,
+                error_message=error,
+            )
             logger.warning(
                 "Session %s iter %d analysis failed: %s", session_id, iteration_index, error
             )
@@ -325,14 +346,12 @@ async def _run_session_analysis(
     except Exception:
         logger.exception("Session %s iter %d analysis failed", session_id, iteration_index)
         try:
-            iteration = iter_repo.get_by_id(UUID(iteration_id))
-            if iteration:
-                iter_repo.update_status_optimistic(
-                    UUID(iteration_id),
-                    iteration.version,
-                    IterationStatus.FAILED,
-                    error_message="Internal error during analysis",
-                )
+            _update_iteration_status_with_retry(
+                iter_repo,
+                UUID(iteration_id),
+                IterationStatus.FAILED,
+                error_message="Internal error during analysis",
+            )
         except Exception:
             logger.exception("Failed to update iteration status")
     finally:
@@ -576,7 +595,6 @@ def _check_iteration_completion(db: DbSession, iteration_id: UUID) -> None:
     if all_done:
         any_succeeded = any(p.status == ProposalStatus.COMPLETED for p in proposals)
         new_status = IterationStatus.COMPLETED if any_succeeded else IterationStatus.FAILED
-        iteration = iter_repo.get_by_id(iteration_id)
-        if iteration:
-            iter_repo.update_status_optimistic(iteration_id, iteration.version, new_status)
+        result = _update_iteration_status_with_retry(iter_repo, iteration_id, new_status)
+        if result:
             logger.info("Iteration %s completed: %s", iteration_id, new_status)

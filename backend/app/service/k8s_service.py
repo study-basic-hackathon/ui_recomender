@@ -1,5 +1,6 @@
 import asyncio
 import logging
+from collections.abc import AsyncIterator
 
 from kubernetes import client, config
 from kubernetes.client.rest import ApiException
@@ -458,6 +459,93 @@ class K8sService:
         job = self._build_session_job_spec(job_name, labels, container)
         self._create_job_idempotent(job_name, job)
         return job_name
+
+    async def stream_pod_logs(
+        self, job_name: str, tail_lines: int = 100, since_seconds: int | None = None
+    ) -> AsyncIterator[str]:
+        """Stream logs from a job's pod. Yields log lines as they arrive.
+
+        Args:
+            tail_lines: Number of past log lines to include (only used for
+                        pods that are still running and since_seconds is not set).
+            since_seconds: If set, only return logs newer than this many seconds.
+                           Used to avoid replaying old logs on reconnect.
+        """
+        max_wait = 300  # 5 minutes
+        poll_interval = 3
+        elapsed = 0
+
+        # Wait for a pod to appear
+        pod_name: str | None = None
+        while elapsed < max_wait:
+            try:
+                pods = self.core_v1.list_namespaced_pod(
+                    namespace=self.namespace,
+                    label_selector=f"job-name={job_name}",
+                )
+                if pods.items:
+                    pod = pods.items[0]
+                    pod_name = pod.metadata.name
+                    phase = pod.status.phase if pod.status else None
+                    if phase in ("Running", "Succeeded", "Failed"):
+                        break
+            except ApiException as e:
+                logger.warning("Error listing pods for job %s: %s", job_name, e)
+            await asyncio.sleep(poll_interval)
+            elapsed += poll_interval
+
+        if not pod_name:
+            yield f"@@LOG@@{{\"phase\":\"waiting\",\"message\":\"Pod not found for job {job_name}\"}}"
+            return
+
+        # Use a queue to bridge the blocking iterator and async generator
+        queue: asyncio.Queue[str | None] = asyncio.Queue()
+
+        async def _producer() -> None:
+            try:
+                loop = asyncio.get_running_loop()
+
+                kwargs: dict = {
+                    "name": pod_name,
+                    "namespace": self.namespace,
+                    "follow": True,
+                    "_preload_content": False,
+                }
+                if since_seconds is not None:
+                    kwargs["since_seconds"] = since_seconds
+                else:
+                    kwargs["tail_lines"] = tail_lines
+
+                resp = await asyncio.to_thread(
+                    self.core_v1.read_namespaced_pod_log,
+                    **kwargs,
+                )
+
+                def _iter_lines() -> None:
+                    try:
+                        for raw_line in resp:
+                            if isinstance(raw_line, bytes):
+                                line = raw_line.decode("utf-8", errors="replace").rstrip("\n")
+                            else:
+                                line = str(raw_line).rstrip("\n")
+                            loop.call_soon_threadsafe(queue.put_nowait, line)
+                    finally:
+                        loop.call_soon_threadsafe(queue.put_nowait, None)
+
+                await asyncio.to_thread(_iter_lines)
+            except Exception as e:
+                logger.error("Log stream producer error for %s: %s", pod_name, e)
+                await queue.put(None)
+
+        producer_task = asyncio.create_task(_producer())
+        try:
+            while True:
+                line = await queue.get()
+                if line is None:
+                    break
+                yield line
+        finally:
+            producer_task.cancel()
 
     def delete_job(self, job_name: str) -> None:
         """Delete a completed job and its pods."""

@@ -13,6 +13,7 @@ dependencies = [
     "langgraph>=0.4.0",
     "kubernetes>=32.0.0",
     "boto3>=1.35.0",
+    "sse-starlette>=2.0.0",
 ]
 
 
@@ -67,7 +68,7 @@ module = "app.workflow.*"
 disallow_untyped_calls = false
 
 [[tool.mypy.overrides]]
-module = ["langgraph.*", "kubernetes.*", "pytest.*", "pytest_asyncio.*", "_pytest.*", "boto3.*", "botocore.*"]
+module = ["langgraph.*", "kubernetes.*", "pytest.*", "pytest_asyncio.*", "_pytest.*", "boto3.*", "botocore.*", "sse_starlette.*"]
 ignore_missing_imports = true
 
 [tool.hatch.build.targets.wheel]

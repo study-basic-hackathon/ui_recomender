@@ -1,12 +1,15 @@
+import asyncio
 import json
+import logging
 from io import BytesIO
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
+from sse_starlette.sse import EventSourceResponse
 
-from app.di.dependencies import get_db, get_s3_service
+from app.di.dependencies import get_db, get_log_stream_service, get_s3_service
 from app.model.session import Iteration, Proposal
 from app.model.session import Session as SessionModel
 from app.schema.session_schema import (
@@ -17,12 +20,15 @@ from app.schema.session_schema import (
     ProposalResponse,
     SessionResponse,
 )
+from app.service.log_stream_service import LogStreamService
 from app.service.s3_service import S3Service
 from app.usecase.session_usecase import (
     CreateSessionPRUseCase,
     CreateSessionUseCase,
     IterateUseCase,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/sessions", tags=["sessions"])
 
@@ -200,3 +206,28 @@ async def get_diff(
     if not diff:
         raise HTTPException(status_code=404, detail="Diff not found")
     return {"diff": diff}
+
+
+@router.get("/{session_id}/logs/stream")
+async def stream_session_logs(
+    session_id: UUID,
+    since_seconds: int | None = None,
+    log_service: LogStreamService = Depends(get_log_stream_service),
+) -> EventSourceResponse:
+    async def event_generator():  # type: ignore[no-untyped-def]
+        try:
+            async for event in log_service.stream_session_logs(
+                str(session_id), since_seconds=since_seconds
+            ):
+                yield {
+                    "event": "log",
+                    "data": json.dumps(event, ensure_ascii=False),
+                }
+            yield {"event": "done", "data": "{}"}
+        except asyncio.CancelledError:
+            logger.debug("SSE connection closed for session %s", session_id)
+
+    return EventSourceResponse(
+        event_generator(),
+        headers={"X-Accel-Buffering": "no"},
+    )

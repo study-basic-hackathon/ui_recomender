@@ -10,11 +10,45 @@ import os
 import re
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import boto3
 from botocore.config import Config
-from claude_agent_sdk import ClaudeAgentOptions, query
+from claude_agent_sdk import ClaudeAgentOptions, query, AssistantMessage, TextBlock, ToolUseBlock
+from claude_agent_sdk.types import StreamEvent
+
+
+def emit_log(phase: str, message: str, detail: str | None = None) -> None:
+    entry = {
+        "phase": phase,
+        "message": message,
+        "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+    }
+    if detail:
+        entry["detail"] = detail
+    print(f"@@LOG@@{json.dumps(entry, ensure_ascii=False)}", flush=True)
+
+
+def _emit_tool_detail(phase: str, tool_name: str, raw_input: str) -> None:
+    """Parse tool input JSON and emit a human-readable log line."""
+    try:
+        params = json.loads(raw_input)
+    except json.JSONDecodeError:
+        emit_log(phase, f"Using tool: {tool_name}")
+        return
+
+    if tool_name == "Read":
+        emit_log(phase, f"Reading: {params.get('file_path', '?')}")
+    elif tool_name in ("Write", "Edit"):
+        emit_log(phase, f"Editing: {params.get('file_path', '?')}")
+    elif tool_name == "Bash":
+        cmd = params.get("command", "?")
+        emit_log(phase, f"Running: {cmd[:100]}")
+    elif tool_name in ("Glob", "Grep"):
+        emit_log(phase, f"Searching: {params.get('pattern', '?')}")
+    else:
+        emit_log(phase, f"Using tool: {tool_name}")
 
 
 def get_s3_client():
@@ -87,6 +121,9 @@ Follow these steps:
 IMPORTANT: The screenshot is critical. Do your best to get the dev server running and take the screenshot.
 """
 
+    current_tool = None
+    tool_input_chunks = ""
+
     async for msg in query(
         prompt=prompt,
         options=ClaudeAgentOptions(
@@ -94,12 +131,37 @@ IMPORTANT: The screenshot is critical. Do your best to get the dev server runnin
             cwd=repo_dir,
             max_turns=20,
             max_budget_usd=1.0,
+            include_partial_messages=True,
         ),
     ):
-        if hasattr(msg, "content"):
+        if isinstance(msg, StreamEvent):
+            event = msg.event
+            etype = event.get("type")
+            if etype == "content_block_start":
+                content_block = event.get("content_block", {})
+                if content_block.get("type") == "tool_use":
+                    current_tool = content_block.get("name")
+                    tool_input_chunks = ""
+                    emit_log("screenshot", f"Tool: {current_tool}")
+            elif etype == "content_block_delta":
+                delta = event.get("delta", {})
+                if delta.get("type") == "input_json_delta":
+                    tool_input_chunks += delta.get("partial_json", "")
+            elif etype == "content_block_stop":
+                if current_tool and tool_input_chunks:
+                    _emit_tool_detail("screenshot", current_tool, tool_input_chunks)
+                current_tool = None
+                tool_input_chunks = ""
+            continue
+
+        if isinstance(msg, AssistantMessage):
             for block in msg.content:
-                if hasattr(block, "text"):
+                if isinstance(block, TextBlock):
+                    emit_log("screenshot", block.text[:200], detail=block.text)
                     print(f"Screenshot Agent: {block.text[:200]}")
+                elif isinstance(block, ToolUseBlock):
+                    _emit_tool_detail("screenshot", block.name, json.dumps(block.input))
+                    print(f"Screenshot Tool: {block.name}")
 
 
 def _extract_proposals_json(collected_text: list[str]) -> list[dict]:
@@ -115,6 +177,8 @@ def _extract_proposals_json(collected_text: list[str]) -> list[dict]:
             text = text.split("```json")[1].split("```")[0].strip()
         elif "```" in text:
             text = text.split("```")[1].split("```")[0].strip()
+
+        # Try parsing the whole block first
         try:
             data = json.loads(text)
             if isinstance(data, dict) and "proposals" in data:
@@ -122,15 +186,29 @@ def _extract_proposals_json(collected_text: list[str]) -> list[dict]:
             if isinstance(data, list):
                 return data
         except json.JSONDecodeError:
-            continue
+            pass
 
-    # Strategy 2: Search for {"proposals": ...} in the concatenated text using regex
+        # If block contains JSON embedded after prose, find the first '{' and try parsing from there
+        brace_idx = text.find('{"proposals"')
+        if brace_idx == -1:
+            brace_idx = text.find("{\n")
+        if brace_idx >= 0:
+            candidate = text[brace_idx:]
+            try:
+                data = json.loads(candidate)
+                if isinstance(data, dict) and "proposals" in data:
+                    return data["proposals"]
+            except json.JSONDecodeError:
+                pass
+
+    # Strategy 2: Find {"proposals" in concatenated text and use JSONDecoder to parse
     full_text = "\n".join(collected_text)
-    match = re.search(r'\{"proposals"\s*:\s*\[.*\]\s*\}', full_text, re.DOTALL)
-    if match:
+    decoder = json.JSONDecoder()
+    idx = full_text.find('{"proposals"')
+    if idx >= 0:
         try:
-            data = json.loads(match.group())
-            if "proposals" in data:
+            data, _ = decoder.raw_decode(full_text, idx)
+            if isinstance(data, dict) and "proposals" in data:
                 return data["proposals"]
         except json.JSONDecodeError:
             pass
@@ -193,19 +271,47 @@ Remember: The JSON output is the MOST IMPORTANT part. Even if your analysis is i
 """
 
     collected_text = []
+    current_tool = None
+    tool_input_chunks = ""
+
     async for msg in query(
         prompt=prompt,
         options=ClaudeAgentOptions(
             allowed_tools=["Read", "Glob", "Grep"],
             cwd=repo_dir,
             max_turns=30,
+            include_partial_messages=True,
         ),
     ):
+        if isinstance(msg, StreamEvent):
+            event = msg.event
+            etype = event.get("type")
+            if etype == "content_block_start":
+                content_block = event.get("content_block", {})
+                if content_block.get("type") == "tool_use":
+                    current_tool = content_block.get("name")
+                    tool_input_chunks = ""
+                    emit_log("analyzing", f"Tool: {current_tool}")
+            elif etype == "content_block_delta":
+                delta = event.get("delta", {})
+                if delta.get("type") == "input_json_delta":
+                    tool_input_chunks += delta.get("partial_json", "")
+            elif etype == "content_block_stop":
+                if current_tool and tool_input_chunks:
+                    _emit_tool_detail("analyzing", current_tool, tool_input_chunks)
+                current_tool = None
+                tool_input_chunks = ""
+            continue
+
         # Collect text content from assistant messages
-        if hasattr(msg, "content"):
+        if isinstance(msg, AssistantMessage):
             for block in msg.content:
-                if hasattr(block, "text"):
+                if isinstance(block, TextBlock):
+                    emit_log("analyzing", block.text[:200], detail=block.text)
                     collected_text.append(block.text)
+                elif isinstance(block, ToolUseBlock):
+                    _emit_tool_detail("analyzing", block.name, json.dumps(block.input))
+                    print(f"Analyze Tool: {block.name}")
 
     return _extract_proposals_json(collected_text)
 
@@ -229,7 +335,7 @@ async def main() -> None:
     s3_prefix = f"sessions/{session_id}/iterations/{iteration_index}"
 
     # Step 1: Clone repository
-    print("=== Cloning repository ===")
+    emit_log("cloning", "Cloning repository")
     subprocess.run(
         ["git", "clone", "--depth", "1", "--branch", branch, repo_url, repo_dir],
         check=True,
@@ -243,9 +349,9 @@ async def main() -> None:
             f"/proposals/{selected_proposal_index}/changes.diff"
         )
         local_patch = f"{tmp_dir}/parent.diff"
-        print(f"=== Downloading patch from S3: {patch_key} ===")
+        emit_log("patching", f"Downloading patch from S3: {patch_key}")
         if s3_download(s3, bucket, patch_key, local_patch):
-            print("=== Applying cumulative patch ===")
+            emit_log("patching", "Applying cumulative patch")
             result = subprocess.run(
                 ["git", "am", "--3way", local_patch],
                 cwd=repo_dir,
@@ -269,7 +375,7 @@ async def main() -> None:
                     cwd=repo_dir,
                     check=True,
                 )
-            print("=== Cumulative patch applied successfully ===")
+            emit_log("patching", "Cumulative patch applied successfully")
         else:
             print(
                 f"WARNING: Patch not found at s3://{bucket}/{patch_key}",
@@ -277,17 +383,17 @@ async def main() -> None:
             )
 
     # Step 2: Take before screenshot
-    print("=== Taking before screenshot ===")
+    emit_log("screenshot", "Taking before screenshot")
     before_path = f"{tmp_dir}/before.png"
     await take_before_screenshot(repo_dir, before_path)
 
     # Step 3: Generate design proposals via Claude Agent SDK
-    print("=== Generating design proposals ===")
+    emit_log("analyzing", "Generating design proposals")
     proposals = await generate_proposals(repo_dir, instruction, num_proposals)
-    print(f"=== Generated {len(proposals)} proposals ===")
+    emit_log("analyzing", f"Generated {len(proposals)} proposals")
 
     # Step 4: Upload results to S3
-    print("=== Uploading results to S3 ===")
+    emit_log("uploading", "Uploading results to S3")
 
     # Upload before screenshot
     if Path(before_path).exists():
@@ -307,7 +413,7 @@ async def main() -> None:
         content_type="application/json",
     )
 
-    print("=== Analysis Complete ===")
+    emit_log("completed", "Analysis complete")
 
 
 if __name__ == "__main__":

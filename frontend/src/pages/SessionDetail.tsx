@@ -20,7 +20,9 @@ export default function SessionDetail() {
       ? session.iterations[session.iterations.length - 1]
       : null
   const iterationStatusForHook = latestIterationForHook?.status ?? 'pending'
-  const isInProgressForHook = ['pending', 'analyzing', 'implementing'].includes(iterationStatusForHook)
+  const isInProgressForHook = ['pending', 'analyzing', 'implementing'].includes(
+    iterationStatusForHook,
+  )
   const logStreamState = useLogStream(sessionId ?? null, isInProgressForHook)
 
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null)

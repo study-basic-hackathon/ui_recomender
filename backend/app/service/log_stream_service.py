@@ -28,9 +28,10 @@ def parse_log_line(line: str) -> dict | None:
     """Parse a log line. If it has the @@LOG@@ prefix, return the parsed JSON.
     Otherwise return a generic log entry."""
     if line.startswith(LOG_PREFIX):
-        json_str = line[len(LOG_PREFIX):]
+        json_str = line[len(LOG_PREFIX) :]
         try:
-            return json.loads(json_str)
+            result: dict = json.loads(json_str)
+            return result
         except json.JSONDecodeError:
             logger.debug("Failed to parse log JSON: %s", json_str[:100])
             return None
@@ -63,9 +64,7 @@ class LogStreamService:
             JobInfo(job_name=job_name, job_type=job_type, proposal_index=proposal_index)
         )
         session_jobs.version += 1
-        logger.info(
-            "Registered job %s (type=%s) for session %s", job_name, job_type, session_id
-        )
+        logger.info("Registered job %s (type=%s) for session %s", job_name, job_type, session_id)
 
     def get_session_jobs(self, session_id: str) -> list[JobInfo]:
         """Get registered jobs for a session."""
@@ -87,7 +86,7 @@ class LogStreamService:
         k8s = K8sService()
         queue: asyncio.Queue[dict | None] = asyncio.Queue()
         tracked_jobs: set[str] = set()
-        tasks: list[asyncio.Task] = []  # type: ignore[type-arg]
+        tasks: list[asyncio.Task[None]] = []
 
         async def _stream_single_job(job_info: JobInfo) -> None:
             """Stream logs from a single job into the shared queue."""
@@ -105,22 +104,26 @@ class LogStreamService:
                         await queue.put(event)
                     else:
                         # Non-structured log line - emit as raw
-                        await queue.put({
-                            "job_type": job_info.job_type,
-                            "proposal_index": job_info.proposal_index,
-                            "phase": "running",
-                            "message": line,
-                        })
+                        await queue.put(
+                            {
+                                "job_type": job_info.job_type,
+                                "proposal_index": job_info.proposal_index,
+                                "phase": "running",
+                                "message": line,
+                            }
+                        )
             except asyncio.CancelledError:
                 return
             except Exception as e:
                 logger.error("Error streaming job %s: %s", job_info.job_name, e)
-                await queue.put({
-                    "job_type": job_info.job_type,
-                    "proposal_index": job_info.proposal_index,
-                    "phase": "error",
-                    "message": str(e),
-                })
+                await queue.put(
+                    {
+                        "job_type": job_info.job_type,
+                        "proposal_index": job_info.proposal_index,
+                        "phase": "error",
+                        "message": str(e),
+                    }
+                )
 
         async def _monitor_new_jobs() -> None:
             """Monitor for new job registrations and start streaming them."""

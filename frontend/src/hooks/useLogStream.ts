@@ -44,7 +44,9 @@ export function useLogStream(sessionId: string | null, enabled: boolean): LogStr
   const [reconnectCount, setReconnectCount] = useState(0)
 
   // Keep enabledRef in sync
-  enabledRef.current = enabled
+  useEffect(() => {
+    enabledRef.current = enabled
+  }, [enabled])
 
   const cleanup = useCallback(() => {
     if (eventSourceRef.current) {
@@ -72,16 +74,22 @@ export function useLogStream(sessionId: string | null, enabled: boolean): LogStr
     const isReconnect = connectedOnceRef.current
     if (!isReconnect) {
       jobsRef.current = new Map()
-      setState({ jobs: new Map(), isStreaming: true, isDone: false })
-    } else {
-      setState((prev) => ({ ...prev, isStreaming: true, isDone: false }))
     }
+    connectedOnceRef.current = true
+
+    // Set streaming state asynchronously via microtask to avoid synchronous setState in effect
+    queueMicrotask(() => {
+      if (!isReconnect) {
+        setState({ jobs: new Map(), isStreaming: true, isDone: false })
+      } else {
+        setState((prev) => ({ ...prev, isStreaming: true, isDone: false }))
+      }
+    })
 
     // On reconnect (2nd+ connection), skip old logs by requesting only recent ones
     const url = isReconnect
       ? `/api/sessions/${sessionId}/logs/stream?since_seconds=1`
       : `/api/sessions/${sessionId}/logs/stream`
-    connectedOnceRef.current = true
 
     const es = new EventSource(url)
     eventSourceRef.current = es

@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from 'react'
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import type { LogStreamState, JobLogState, LogEntry } from '../hooks/useLogStream'
 
 const PHASE_LABELS: Record<string, string> = {
@@ -45,7 +45,8 @@ function getOverallPhase(logState: LogStreamState): string {
     latestPhase = job.phase
   }
   // If all are completed
-  const allCompleted = logState.jobs.size > 0 && [...logState.jobs.values()].every((j) => j.phase === 'completed')
+  const allCompleted =
+    logState.jobs.size > 0 && [...logState.jobs.values()].every((j) => j.phase === 'completed')
   if (allCompleted) return 'completed'
   return latestPhase
 }
@@ -81,7 +82,10 @@ function LogViewer({ entries }: LogViewerProps) {
   }, [])
 
   const startIndex = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - 5)
-  const endIndex = Math.min(entries.length, Math.ceil((scrollTop + containerHeight) / ROW_HEIGHT) + 5)
+  const endIndex = Math.min(
+    entries.length,
+    Math.ceil((scrollTop + containerHeight) / ROW_HEIGHT) + 5,
+  )
   const visibleEntries = entries.slice(startIndex, endIndex)
 
   return (
@@ -101,9 +105,7 @@ function LogViewer({ entries }: LogViewerProps) {
       <div style={{ height: `${totalHeight}px`, position: 'relative' }}>
         {visibleEntries.map((entry, i) => {
           const index = startIndex + i
-          const time = entry.timestamp
-            ? new Date(entry.timestamp).toLocaleTimeString()
-            : ''
+          const time = entry.timestamp ? new Date(entry.timestamp).toLocaleTimeString() : ''
           return (
             <div
               key={index}
@@ -137,36 +139,37 @@ interface LogPanelProps {
 
 export default function LogPanel({ logState, defaultCollapsed }: LogPanelProps) {
   const [expanded, setExpanded] = useState(!defaultCollapsed)
-  const [activeTab, setActiveTab] = useState<string | null>(null)
+  const [prevDefaultCollapsed, setPrevDefaultCollapsed] = useState(defaultCollapsed)
+  const [selectedTab, setSelectedTab] = useState<string | null>(null)
 
-  // 完了時に自動的に折りたたむ
-  useEffect(() => {
+  // 完了時に自動的に折りたたむ（defaultCollapsed が false→true に変わった時のみ）
+  if (defaultCollapsed !== prevDefaultCollapsed) {
+    setPrevDefaultCollapsed(defaultCollapsed)
     if (defaultCollapsed) {
       setExpanded(false)
     }
-  }, [defaultCollapsed])
+  }
 
-  const jobKeys = [...logState.jobs.keys()]
+  const jobKeys = useMemo(() => [...logState.jobs.keys()], [logState.jobs])
 
-  // Auto-select first tab
-  useEffect(() => {
-    if (activeTab === null && jobKeys.length > 0) {
-      setActiveTab(jobKeys[0])
-    }
-  }, [jobKeys.length, activeTab, jobKeys])
+  // Derive activeTab: use selected if valid, otherwise first available
+  const activeTab =
+    selectedTab !== null && jobKeys.includes(selectedTab)
+      ? selectedTab
+      : jobKeys.length > 0
+        ? jobKeys[0]
+        : null
+  const setActiveTab = setSelectedTab
 
   const overallPhase = getOverallPhase(logState)
   const phaseLabel = getPhaseLabel(overallPhase)
 
-  const activeJobState: JobLogState | undefined =
-    activeTab ? logState.jobs.get(activeTab) : undefined
+  const activeJobState: JobLogState | undefined = activeTab
+    ? logState.jobs.get(activeTab)
+    : undefined
 
   const dotColor =
-    overallPhase === 'completed'
-      ? '#34d399'
-      : overallPhase === 'error'
-        ? '#f87171'
-        : '#60a5fa'
+    overallPhase === 'completed' ? '#34d399' : overallPhase === 'error' ? '#f87171' : '#60a5fa'
 
   return (
     <div
@@ -212,9 +215,7 @@ export default function LogPanel({ logState, defaultCollapsed }: LogPanelProps) 
           {phaseLabel}
           {logState.isStreaming && overallPhase !== 'completed' && '...'}
         </span>
-        <span style={{ color: '#6e7681', fontSize: '12px' }}>
-          {expanded ? 'Hide' : 'Details'}
-        </span>
+        <span style={{ color: '#6e7681', fontSize: '12px' }}>{expanded ? 'Hide' : 'Details'}</span>
       </button>
 
       {/* Expanded content */}
@@ -237,8 +238,7 @@ export default function LogPanel({ logState, defaultCollapsed }: LogPanelProps) 
                   style={{
                     padding: '8px 16px',
                     border: 'none',
-                    borderBottom:
-                      activeTab === key ? '2px solid #58a6ff' : '2px solid transparent',
+                    borderBottom: activeTab === key ? '2px solid #58a6ff' : '2px solid transparent',
                     backgroundColor: 'transparent',
                     color: activeTab === key ? '#c9d1d9' : '#6e7681',
                     cursor: 'pointer',

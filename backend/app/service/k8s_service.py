@@ -500,7 +500,8 @@ class K8sService:
             elapsed += poll_interval
 
         if not pod_name:
-            yield f"@@LOG@@{{\"phase\":\"waiting\",\"message\":\"Pod not found for job {job_name}\"}}"
+            msg = f"Pod not found for job {job_name}"
+            yield f'@@LOG@@{{"phase":"waiting","message":"{msg}"}}'
             return
 
         # Use a queue to bridge the blocking iterator and async generator

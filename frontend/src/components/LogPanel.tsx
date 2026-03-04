@@ -3,8 +3,9 @@ import type { LogStreamState, JobLogState, LogEntry } from '../hooks/useLogStrea
 
 const PHASE_LABELS: Record<string, string> = {
   sandbox: 'Creating Sandbox',
-  cloning: 'Cloning',
+  cloning: 'Cloning Project',
   patching: 'Applying Patch',
+  launching: 'Launching Project',
   screenshot: 'Taking Screenshot',
   analyzing: 'Analyzing',
   implementing: 'Implementing',

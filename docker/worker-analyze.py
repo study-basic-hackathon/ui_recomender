@@ -14,7 +14,7 @@ from pathlib import Path
 
 import boto3
 from botocore.config import Config
-from claude_agent_sdk import ClaudeAgentOptions, query, AssistantMessage, TextBlock, ToolUseBlock
+from claude_agent_sdk import ClaudeAgentOptions, ClaudeSDKClient, query, AssistantMessage, TextBlock, ToolUseBlock
 from claude_agent_sdk.types import StreamEvent
 
 
@@ -99,37 +99,12 @@ def s3_upload_text(s3, bucket, key, text, content_type="text/plain"):
                 raise
 
 
-async def take_before_screenshot(repo_dir: str, screenshot_output: str) -> None:
-    """Use Claude Agent SDK to start dev server and take a before screenshot."""
-    prompt = f"""You need to start the dev server for the web application at {repo_dir} and take a screenshot.
-
-Follow these steps:
-1. Investigate how to start the dev server (check package.json scripts, README, etc.)
-2. Install the project's dependencies if needed (e.g. `npm install` in the project directory)
-3. Start the dev server in the background using Bash (e.g. `npm run dev &` or whatever is appropriate)
-4. Wait for the server to become ready (poll with curl until it responds)
-5. Once the server is ready, take a screenshot by running:
-   `node /usr/local/bin/take-screenshot.mjs <server_url> {screenshot_output}`
-   where <server_url> is the URL the dev server is listening on (e.g. http://localhost:5173)
-6. Verify the screenshot file was created at {screenshot_output}
-
-IMPORTANT: The screenshot is critical. Do your best to get the dev server running and take the screenshot.
-NOTE: Playwright and Chromium are pre-installed globally in this container. Do NOT install playwright or run `npx playwright install`. Just run `node /usr/local/bin/take-screenshot.mjs <url> <output>` directly.
-"""
-
+async def _process_messages(client: ClaudeSDKClient, phase: str) -> None:
+    """Process messages from ClaudeSDKClient, emitting logs for a given phase."""
     current_tool = None
     tool_input_chunks = ""
 
-    async for msg in query(
-        prompt=prompt,
-        options=ClaudeAgentOptions(
-            allowed_tools=["Read", "Bash", "Glob", "Grep"],
-            cwd=repo_dir,
-            max_turns=20,
-            max_budget_usd=1.0,
-            include_partial_messages=True,
-        ),
-    ):
+    async for msg in client.receive_response():
         if isinstance(msg, StreamEvent):
             event = msg.event
             etype = event.get("type")
@@ -144,7 +119,7 @@ NOTE: Playwright and Chromium are pre-installed globally in this container. Do N
                     tool_input_chunks += delta.get("partial_json", "")
             elif etype == "content_block_stop":
                 if current_tool and tool_input_chunks:
-                    _emit_tool_detail("screenshot", current_tool, tool_input_chunks)
+                    _emit_tool_detail(phase, current_tool, tool_input_chunks)
                 current_tool = None
                 tool_input_chunks = ""
             continue
@@ -152,9 +127,52 @@ NOTE: Playwright and Chromium are pre-installed globally in this container. Do N
         if isinstance(msg, AssistantMessage):
             for block in msg.content:
                 if isinstance(block, TextBlock):
-                    emit_log("screenshot", block.text[:200], detail=block.text)
+                    emit_log(phase, block.text[:200], detail=block.text)
                 elif isinstance(block, ToolUseBlock):
-                    _emit_tool_detail("screenshot", block.name, json.dumps(block.input))
+                    _emit_tool_detail(phase, block.name, json.dumps(block.input))
+
+
+async def launch_and_screenshot(repo_dir: str, screenshot_output: str) -> None:
+    """Launch dev server and take screenshot in a single session.
+
+    Uses ClaudeSDKClient to keep the same conversation context across
+    two query() calls so the agent remembers the dev server URL.
+    """
+    options = ClaudeAgentOptions(
+        allowed_tools=["Read", "Bash", "Glob", "Grep"],
+        cwd=repo_dir,
+        max_turns=20,
+        max_budget_usd=1.0,
+        include_partial_messages=True,
+    )
+
+    async with ClaudeSDKClient(options=options) as client:
+        # Phase 1: install deps + start dev server
+        emit_log("launching", "Launching project")
+        await client.query(f"""You need to launch the web application at {repo_dir}.
+
+Follow these steps:
+1. Investigate how to start the dev server (check package.json scripts, README, etc.)
+2. Install the project's dependencies if needed (e.g. `npm install` in the project directory)
+3. Start the dev server in the background using Bash (e.g. `npm run dev &` or whatever is appropriate)
+4. Wait for the server to become ready (poll with curl until it responds)
+
+IMPORTANT: Make sure the dev server is running and responding before finishing.
+""")
+        await _process_messages(client, "launching")
+
+        # Phase 2: take screenshot (same session, so dev server URL is remembered)
+        emit_log("screenshot", "Taking before screenshot")
+        await client.query(f"""Now take a screenshot of the running application.
+
+You already know the dev server URL from the previous step. Use it to take a screenshot:
+1. Run: `node /usr/local/bin/take-screenshot.mjs <server_url> {screenshot_output}`
+   where <server_url> is the URL the dev server is listening on
+2. Verify the screenshot file was created at {screenshot_output}
+
+NOTE: Playwright and Chromium are pre-installed globally in this container. Do NOT install playwright or run `npx playwright install`. Just run `node /usr/local/bin/take-screenshot.mjs <url> <output>` directly.
+""")
+        await _process_messages(client, "screenshot")
 
 
 def _extract_proposals_json(collected_text: list[str]) -> list[dict]:
@@ -373,17 +391,16 @@ async def main() -> None:
                 file=sys.stderr,
             )
 
-    # Step 2: Take before screenshot
-    emit_log("screenshot", "Taking before screenshot")
+    # Step 2-3: Launch project and take before screenshot (single session)
     before_path = f"{tmp_dir}/before.png"
-    await take_before_screenshot(repo_dir, before_path)
+    await launch_and_screenshot(repo_dir, before_path)
 
-    # Step 3: Generate design proposals via Claude Agent SDK
+    # Step 4: Generate design proposals via Claude Agent SDK
     emit_log("analyzing", "Generating design proposals")
     proposals = await generate_proposals(repo_dir, instruction, num_proposals)
     emit_log("analyzing", f"Generated {len(proposals)} proposals")
 
-    # Step 4: Upload results to S3
+    # Step 5: Upload results to S3
     emit_log("uploading", "Uploading results to S3")
 
     # Upload before screenshot

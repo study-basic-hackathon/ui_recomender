@@ -30,6 +30,8 @@ dev = [
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+testpaths = ["app"]
+python_files = "test_*.py"
 
 [tool.ruff]
 target-version = "py313"
@@ -58,7 +60,7 @@ plugins = ["pydantic.mypy", "sqlalchemy.ext.mypy.plugin"]
 exclude = ["migration/"]
 
 [[tool.mypy.overrides]]
-module = "tests.*"
+module = "app.usecase.test_session_usecase"
 disallow_untyped_defs = false
 disallow_incomplete_defs = false
 disable_error_code = ["arg-type"]

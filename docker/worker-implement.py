@@ -10,7 +10,6 @@ import json
 import os
 import subprocess
 import sys
-import time
 from pathlib import Path
 
 import boto3
@@ -23,7 +22,6 @@ def emit_log(phase: str, message: str, detail: str | None = None) -> None:
     entry = {
         "phase": phase,
         "message": message,
-        "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
     }
     if detail:
         entry["detail"] = detail
@@ -157,7 +155,6 @@ IMPORTANT: The screenshot is critical. Do your best to get the dev server runnin
                 if content_block.get("type") == "tool_use":
                     current_tool = content_block.get("name")
                     tool_input_chunks = ""
-                    emit_log("implementing", f"Tool: {current_tool}")
             elif etype == "content_block_delta":
                 delta = event.get("delta", {})
                 if delta.get("type") == "input_json_delta":
@@ -174,10 +171,8 @@ IMPORTANT: The screenshot is critical. Do your best to get the dev server runnin
             for block in msg.content:
                 if isinstance(block, TextBlock):
                     emit_log("implementing", block.text[:200], detail=block.text)
-                    print(f"Agent: {block.text[:200]}")
                 elif isinstance(block, ToolUseBlock):
                     _emit_tool_detail("implementing", block.name, json.dumps(block.input))
-                    print(f"Agent Tool: {block.name}")
 
 
 async def main() -> None:

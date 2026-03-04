@@ -477,6 +477,7 @@ class K8sService:
 
         # Wait for a pod to appear
         pod_name: str | None = None
+        sandbox_emitted = False
         while elapsed < max_wait:
             try:
                 pods = self.core_v1.list_namespaced_pod(
@@ -489,6 +490,10 @@ class K8sService:
                     phase = pod.status.phase if pod.status else None
                     if phase in ("Running", "Succeeded", "Failed"):
                         break
+                    # Pod exists but not yet running
+                    if phase == "Pending" and not sandbox_emitted:
+                        yield '@@LOG@@{"phase":"sandbox","message":"Creating sandbox"}'
+                        sandbox_emitted = True
             except ApiException as e:
                 logger.warning("Error listing pods for job %s: %s", job_name, e)
             await asyncio.sleep(poll_interval)

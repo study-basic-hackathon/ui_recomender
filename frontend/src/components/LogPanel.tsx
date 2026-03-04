@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useCallback } from 'react'
 import type { LogStreamState, JobLogState, LogEntry } from '../hooks/useLogStream'
 
 const PHASE_LABELS: Record<string, string> = {
+  sandbox: 'Creating Sandbox',
   cloning: 'Cloning',
   patching: 'Applying Patch',
   screenshot: 'Taking Screenshot',

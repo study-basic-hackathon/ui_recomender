@@ -10,46 +10,12 @@ import os
 import re
 import subprocess
 import sys
-import time
 from datetime import datetime, timezone
 from pathlib import Path
 
 import boto3
 from botocore.config import Config
-from claude_agent_sdk import ClaudeAgentOptions, query, AssistantMessage, TextBlock, ToolUseBlock
-from claude_agent_sdk.types import StreamEvent
-
-
-def emit_log(phase: str, message: str, detail: str | None = None) -> None:
-    entry = {
-        "phase": phase,
-        "message": message,
-        "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-    }
-    if detail:
-        entry["detail"] = detail
-    print(f"@@LOG@@{json.dumps(entry, ensure_ascii=False)}", flush=True)
-
-
-def _emit_tool_detail(phase: str, tool_name: str, raw_input: str) -> None:
-    """Parse tool input JSON and emit a human-readable log line."""
-    try:
-        params = json.loads(raw_input)
-    except json.JSONDecodeError:
-        emit_log(phase, f"Using tool: {tool_name}")
-        return
-
-    if tool_name == "Read":
-        emit_log(phase, f"Reading: {params.get('file_path', '?')}")
-    elif tool_name in ("Write", "Edit"):
-        emit_log(phase, f"Editing: {params.get('file_path', '?')}")
-    elif tool_name == "Bash":
-        cmd = params.get("command", "?")
-        emit_log(phase, f"Running: {cmd[:100]}")
-    elif tool_name in ("Glob", "Grep"):
-        emit_log(phase, f"Searching: {params.get('pattern', '?')}")
-    else:
-        emit_log(phase, f"Using tool: {tool_name}")
+from claude_agent_sdk import ClaudeAgentOptions, query, AssistantMessage, TextBlock
 
 
 def get_s3_client():
@@ -122,46 +88,18 @@ Please do the following:
 IMPORTANT: You MUST output the PR URL in that exact format so it can be extracted.
 """
     collected_text: list[str] = []
-    current_tool = None
-    tool_input_chunks = ""
 
     async for msg in query(
         prompt=prompt,
         options=ClaudeAgentOptions(
             allowed_tools=["Read", "Bash", "Glob", "Grep"],
             cwd=repo_dir, max_turns=15, max_budget_usd=1.0,
-            include_partial_messages=True,
         ),
     ):
-        if isinstance(msg, StreamEvent):
-            event = msg.event
-            etype = event.get("type")
-            if etype == "content_block_start":
-                content_block = event.get("content_block", {})
-                if content_block.get("type") == "tool_use":
-                    current_tool = content_block.get("name")
-                    tool_input_chunks = ""
-                    emit_log("creating_pr", f"Tool: {current_tool}")
-            elif etype == "content_block_delta":
-                delta = event.get("delta", {})
-                if delta.get("type") == "input_json_delta":
-                    tool_input_chunks += delta.get("partial_json", "")
-            elif etype == "content_block_stop":
-                if current_tool and tool_input_chunks:
-                    _emit_tool_detail("creating_pr", current_tool, tool_input_chunks)
-                current_tool = None
-                tool_input_chunks = ""
-            continue
-
         if isinstance(msg, AssistantMessage):
             for block in msg.content:
                 if isinstance(block, TextBlock):
                     collected_text.append(block.text)
-                    emit_log("creating_pr", block.text[:200], detail=block.text)
-                    print(f"Agent: {block.text[:200]}")
-                elif isinstance(block, ToolUseBlock):
-                    _emit_tool_detail("creating_pr", block.name, json.dumps(block.input))
-                    print(f"Agent Tool: {block.name}")
 
     full_text = "\n".join(collected_text)
     for line in full_text.split("\n"):
@@ -199,10 +137,8 @@ async def main() -> None:
         print(f"Error: Patch not found at s3://{bucket}/{patch_key}", file=sys.stderr)
         sys.exit(1)
     diff_content = Path(local_patch).read_text()
-    emit_log("cloning", f"Patch loaded ({len(diff_content)} chars)")
 
     # Step 2: Clone repository (with token auth for push)
-    emit_log("cloning", "Cloning repository")
     repo_dir = "/workspace/repo"
     if repo_url.startswith("https://github.com/"):
         auth_repo_url = repo_url.replace(
@@ -220,11 +156,9 @@ async def main() -> None:
     # Step 3: Create a new branch
     ts = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
     branch_name = f"feat/{ts}-ui-session-{session_id[:8]}"
-    emit_log("patching", f"Creating branch: {branch_name}")
     subprocess.run(["git", "checkout", "-b", branch_name], cwd=repo_dir, check=True)
 
     # Step 4: Apply the patch
-    emit_log("patching", "Applying patch")
     result = subprocess.run(
         ["git", "am", "--3way", local_patch],
         cwd=repo_dir, capture_output=True, text=True,
@@ -244,7 +178,6 @@ async def main() -> None:
     subprocess.run(["git", "fetch", "--unshallow"], cwd=repo_dir, capture_output=True)
 
     # Step 6: Push and create PR via Agent SDK
-    emit_log("pushing", "Pushing branch and creating PR")
     diff_summary = diff_content[:10000]
     pr_url = await push_and_create_pr(repo_dir, branch_name, branch, diff_summary)
 
@@ -258,8 +191,6 @@ async def main() -> None:
     else:
         print("Error: Failed to extract PR URL from agent output", file=sys.stderr)
         sys.exit(1)
-
-    emit_log("completed", "PR creation complete")
 
 
 if __name__ == "__main__":

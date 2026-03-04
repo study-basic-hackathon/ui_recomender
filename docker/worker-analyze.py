@@ -10,7 +10,6 @@ import os
 import re
 import subprocess
 import sys
-import time
 from pathlib import Path
 
 import boto3
@@ -23,7 +22,6 @@ def emit_log(phase: str, message: str, detail: str | None = None) -> None:
     entry = {
         "phase": phase,
         "message": message,
-        "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
     }
     if detail:
         entry["detail"] = detail
@@ -142,7 +140,6 @@ IMPORTANT: The screenshot is critical. Do your best to get the dev server runnin
                 if content_block.get("type") == "tool_use":
                     current_tool = content_block.get("name")
                     tool_input_chunks = ""
-                    emit_log("screenshot", f"Tool: {current_tool}")
             elif etype == "content_block_delta":
                 delta = event.get("delta", {})
                 if delta.get("type") == "input_json_delta":
@@ -158,10 +155,8 @@ IMPORTANT: The screenshot is critical. Do your best to get the dev server runnin
             for block in msg.content:
                 if isinstance(block, TextBlock):
                     emit_log("screenshot", block.text[:200], detail=block.text)
-                    print(f"Screenshot Agent: {block.text[:200]}")
                 elif isinstance(block, ToolUseBlock):
                     _emit_tool_detail("screenshot", block.name, json.dumps(block.input))
-                    print(f"Screenshot Tool: {block.name}")
 
 
 def _extract_proposals_json(collected_text: list[str]) -> list[dict]:
@@ -291,7 +286,6 @@ Remember: The JSON output is the MOST IMPORTANT part. Even if your analysis is i
                 if content_block.get("type") == "tool_use":
                     current_tool = content_block.get("name")
                     tool_input_chunks = ""
-                    emit_log("analyzing", f"Tool: {current_tool}")
             elif etype == "content_block_delta":
                 delta = event.get("delta", {})
                 if delta.get("type") == "input_json_delta":
@@ -311,7 +305,6 @@ Remember: The JSON output is the MOST IMPORTANT part. Even if your analysis is i
                     collected_text.append(block.text)
                 elif isinstance(block, ToolUseBlock):
                     _emit_tool_detail("analyzing", block.name, json.dumps(block.input))
-                    print(f"Analyze Tool: {block.name}")
 
     return _extract_proposals_json(collected_text)
 

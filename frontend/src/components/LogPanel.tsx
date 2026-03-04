@@ -132,11 +132,19 @@ function LogViewer({ entries }: LogViewerProps) {
 
 interface LogPanelProps {
   logState: LogStreamState
+  defaultCollapsed?: boolean
 }
 
-export default function LogPanel({ logState }: LogPanelProps) {
-  const [expanded, setExpanded] = useState(false)
+export default function LogPanel({ logState, defaultCollapsed }: LogPanelProps) {
+  const [expanded, setExpanded] = useState(!defaultCollapsed)
   const [activeTab, setActiveTab] = useState<string | null>(null)
+
+  // 完了時に自動的に折りたたむ
+  useEffect(() => {
+    if (defaultCollapsed) {
+      setExpanded(false)
+    }
+  }, [defaultCollapsed])
 
   const jobKeys = [...logState.jobs.keys()]
 

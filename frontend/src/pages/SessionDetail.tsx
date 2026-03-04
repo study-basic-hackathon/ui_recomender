@@ -235,7 +235,9 @@ export default function SessionDetail() {
       )}
 
       {/* Progress indicator with log streaming */}
-      {isInProgress && <LogPanel logState={logStreamState} />}
+      {(isInProgress || logStreamState.jobs.size > 0) && (
+        <LogPanel logState={logStreamState} defaultCollapsed={!isInProgress} />
+      )}
 
       {/* Completed: show proposals */}
       {iterationStatus === 'completed' && latestIteration && (

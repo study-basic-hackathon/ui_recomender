@@ -33,7 +33,6 @@ def _emit_tool_detail(phase: str, tool_name: str, raw_input: str) -> None:
     try:
         params = json.loads(raw_input)
     except json.JSONDecodeError:
-        emit_log(phase, f"Using tool: {tool_name}")
         return
 
     if tool_name == "Read":
@@ -45,8 +44,6 @@ def _emit_tool_detail(phase: str, tool_name: str, raw_input: str) -> None:
         emit_log(phase, f"Running: {cmd[:100]}")
     elif tool_name in ("Glob", "Grep"):
         emit_log(phase, f"Searching: {params.get('pattern', '?')}")
-    else:
-        emit_log(phase, f"Using tool: {tool_name}")
 
 
 def get_s3_client():

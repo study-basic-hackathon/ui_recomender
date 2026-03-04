@@ -186,6 +186,47 @@ async def _process_messages(client: ClaudeSDKClient, phase: str) -> None:
                     _emit_tool_detail(phase, block.name, json.dumps(block.input))
 
 
+async def kill_dev_servers(repo_dir: str) -> None:
+    """Kill any lingering dev server processes (node, vite, next, etc.)."""
+    for pattern in ["node", "vite", "next"]:
+        subprocess.run(
+            ["pkill", "-f", pattern],
+            capture_output=True,
+        )
+    # Give processes time to terminate
+    await asyncio.sleep(2)
+
+
+async def fix_with_claude(repo_dir: str, error_message: str) -> None:
+    """Use Claude to diagnose and fix the dev server launch failure."""
+    options = ClaudeAgentOptions(
+        allowed_tools=["Read", "Write", "Edit", "Bash", "Glob", "Grep"],
+        cwd=repo_dir,
+        max_turns=20,
+        max_budget_usd=1.5,
+        include_partial_messages=True,
+    )
+
+    async with ClaudeSDKClient(options=options) as client:
+        await client.query(f"""The dev server failed to start in the project at {repo_dir}.
+
+Here is the error output:
+
+```
+{error_message}
+```
+
+Please diagnose and fix the issue. Common causes include:
+- Missing or incorrect dependencies (run `npm install` or similar)
+- Build errors in the source code (syntax errors, import errors, type errors)
+- Port conflicts (change the port configuration)
+- Missing environment variables or config files
+
+Fix the code so the dev server can start successfully. Make minimal, targeted changes.
+""")
+        await _process_messages(client, "implementing")
+
+
 async def launch_and_screenshot(repo_dir: str, screenshot_output: str) -> None:
     """Launch dev server and take screenshot in a single session.
 
@@ -227,6 +268,13 @@ You already know the dev server URL from the previous step. Use it to take a scr
 NOTE: Playwright and Chromium are pre-installed globally in this container. Do NOT install playwright or run `npx playwright install`. Just run `node /usr/local/bin/take-screenshot.mjs <url> <output>` directly.
 """)
         await _process_messages(client, "screenshot")
+
+    # Verify screenshot was actually created
+    if not Path(screenshot_output).exists():
+        raise RuntimeError(
+            f"Screenshot was not created at {screenshot_output}. "
+            "The dev server likely failed to start or the screenshot command failed."
+        )
 
 
 async def main() -> None:
@@ -320,8 +368,33 @@ async def main() -> None:
     emit_log("implementing", "Implementing design proposal")
     await implement_changes(repo_dir, proposal_plan)
 
-    # Launch + screenshot in a single session (shares dev server URL context)
-    await launch_and_screenshot(repo_dir, screenshot_path)
+    # Launch + screenshot with retry loop
+    max_retries = 2  # up to 3 total attempts
+    last_error = None
+    for attempt in range(max_retries + 1):
+        try:
+            await launch_and_screenshot(repo_dir, screenshot_path)
+            last_error = None
+            break  # success
+        except Exception as e:
+            last_error = str(e)
+            if attempt < max_retries:
+                emit_log(
+                    "implementing",
+                    f"Dev server launch failed (attempt {attempt + 1}/{max_retries + 1}), attempting fix...",
+                    detail=last_error,
+                )
+                await kill_dev_servers(repo_dir)
+                await fix_with_claude(repo_dir, last_error)
+            else:
+                emit_log(
+                    "implementing",
+                    f"Dev server launch failed after {max_retries + 1} attempts, proceeding without screenshot",
+                    detail=last_error,
+                )
+
+    if last_error:
+        emit_log("implementing", "WARNING: Could not launch dev server, screenshot may be missing")
 
     # Step 4: Generate cumulative patch (squash everything since base_branch)
     emit_log("uploading", "Generating cumulative patch")

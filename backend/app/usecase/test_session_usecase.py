@@ -163,9 +163,7 @@ class TestIterateUseCase:
         sr.create(session)
         iteration = _make_iteration(session.id)
         ir.create(iteration)
-        proposal = _make_proposal(
-            iteration.id, status=ProposalStatus.IMPLEMENTING
-        )
+        proposal = _make_proposal(iteration.id, status=ProposalStatus.IMPLEMENTING)
         pr.create(proposal)
 
         uc = self._build(session_repo=sr, iteration_repo=ir, proposal_repo=pr)
@@ -281,9 +279,7 @@ class TestCreateSessionPRUseCase:
         sr.create(session)
         iteration = _make_iteration(session.id, index=0)
         ir.create(iteration)
-        proposal = _make_proposal(
-            iteration.id, status=ProposalStatus.IMPLEMENTING
-        )
+        proposal = _make_proposal(iteration.id, status=ProposalStatus.IMPLEMENTING)
         pr.create(proposal)
 
         uc = self._build(session_repo=sr, iteration_repo=ir, proposal_repo=pr)

@@ -14,9 +14,7 @@ class MockIterationRepository:
     def get_by_id(self, iteration_id: UUID) -> Iteration | None:
         return self._store.get(iteration_id)
 
-    def get_by_session_and_index(
-        self, session_id: UUID, iteration_index: int
-    ) -> Iteration | None:
+    def get_by_session_and_index(self, session_id: UUID, iteration_index: int) -> Iteration | None:
         for it in self._store.values():
             if it.session_id == session_id and it.iteration_index == iteration_index:
                 return it
@@ -51,9 +49,7 @@ class MockIterationRepository:
                 setattr(iteration, k, v)
         return iteration
 
-    def update_selected_proposal(
-        self, iteration_id: UUID, proposal_index: int
-    ) -> Iteration | None:
+    def update_selected_proposal(self, iteration_id: UUID, proposal_index: int) -> Iteration | None:
         iteration = self._store.get(iteration_id)
         if iteration:
             iteration.selected_proposal_index = proposal_index

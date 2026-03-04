@@ -15,7 +15,7 @@ class ProposalNotFoundError(Exception):
         super().__init__(f"Proposal not found: job={job_id}, index={proposal_index}")
 
 
-class K8sServiceError(Exception):
+class K8sClientError(Exception):
     """Raised when a Kubernetes operation fails."""
 
 

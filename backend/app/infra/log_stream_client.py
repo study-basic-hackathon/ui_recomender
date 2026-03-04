@@ -4,7 +4,7 @@ import logging
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 
-from app.service.k8s_service import K8sService
+from app.infra.k8s_client import K8sClient
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +38,7 @@ def parse_log_line(line: str) -> dict | None:
     return None
 
 
-class LogStreamService:
+class LogStreamClient:
     """Manages log streaming for sessions. Singleton per backend process."""
 
     def __init__(self) -> None:
@@ -83,7 +83,7 @@ class LogStreamService:
             since_seconds: If set, only stream logs newer than this many seconds.
                            Used on reconnect to avoid replaying old logs.
         """
-        k8s = K8sService()
+        k8s = K8sClient()
         queue: asyncio.Queue[dict | None] = asyncio.Queue()
         tracked_jobs: set[str] = set()
         tasks: list[asyncio.Task[None]] = []

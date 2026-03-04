@@ -15,6 +15,12 @@
 from .database import SessionLocal
 from .iteration_repository import IterationRepository
 from .proposal_repository import ProposalRepository
+from .protocols import (
+    IterationRepositoryProtocol,
+    ProposalRepositoryProtocol,
+    SessionRepositoryProtocol,
+    SettingRepositoryProtocol,
+)
 from .session_repository import SessionRepository
 from .setting_repository import SettingRepository
 
@@ -24,4 +30,8 @@ __all__ = [
     "IterationRepository",
     "ProposalRepository",
     "SettingRepository",
+    "SessionRepositoryProtocol",
+    "IterationRepositoryProtocol",
+    "ProposalRepositoryProtocol",
+    "SettingRepositoryProtocol",
 ]

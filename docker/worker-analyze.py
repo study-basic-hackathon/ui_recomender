@@ -105,7 +105,7 @@ async def take_before_screenshot(repo_dir: str, screenshot_output: str) -> None:
 
 Follow these steps:
 1. Investigate how to start the dev server (check package.json scripts, README, etc.)
-2. Install dependencies if needed
+2. Install the project's dependencies if needed (e.g. `npm install` in the project directory)
 3. Start the dev server in the background using Bash (e.g. `npm run dev &` or whatever is appropriate)
 4. Wait for the server to become ready (poll with curl until it responds)
 5. Once the server is ready, take a screenshot by running:
@@ -114,6 +114,7 @@ Follow these steps:
 6. Verify the screenshot file was created at {screenshot_output}
 
 IMPORTANT: The screenshot is critical. Do your best to get the dev server running and take the screenshot.
+NOTE: Playwright and Chromium are pre-installed globally in this container. Do NOT install playwright or run `npx playwright install`. Just run `node /usr/local/bin/take-screenshot.mjs <url> <output>` directly.
 """
 
     current_tool = None

@@ -10,7 +10,7 @@ from app.core.exceptions import (
     ArtifactNotFoundError,
     InvalidJobStateError,
     JobNotFoundError,
-    K8sServiceError,
+    K8sClientError,
     ProposalNotFoundError,
 )
 
@@ -32,7 +32,7 @@ class ErrorHandlerMiddleware(BaseHTTPMiddleware):
             return JSONResponse(status_code=404, content={"detail": str(e)})
         except InvalidJobStateError as e:
             return JSONResponse(status_code=400, content={"detail": str(e)})
-        except K8sServiceError as e:
+        except K8sClientError as e:
             logger.error("K8s service error: %s", e)
             return JSONResponse(
                 status_code=503,

@@ -9,7 +9,9 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from sse_starlette.sse import EventSourceResponse
 
-from app.di.dependencies import get_db, get_log_stream_service, get_s3_service
+from app.di.dependencies import get_db, get_log_stream_client, get_s3_client
+from app.infra.log_stream_client import LogStreamClient
+from app.infra.s3_client import S3Client
 from app.model.session import Iteration, Proposal
 from app.model.session import Session as SessionModel
 from app.schema.session_schema import (
@@ -20,8 +22,6 @@ from app.schema.session_schema import (
     ProposalResponse,
     SessionResponse,
 )
-from app.service.log_stream_service import LogStreamService
-from app.service.s3_service import S3Service
 from app.usecase.session_usecase import (
     CreateSessionPRUseCase,
     CreateSessionUseCase,
@@ -174,7 +174,7 @@ async def create_pr(
 async def get_before_screenshot(
     session_id: UUID,
     iter_index: int,
-    s3: S3Service = Depends(get_s3_service),
+    s3: S3Client = Depends(get_s3_client),
 ) -> StreamingResponse:
     data = s3.get_before_screenshot(str(session_id), iter_index)
     if not data:
@@ -187,7 +187,7 @@ async def get_after_screenshot(
     session_id: UUID,
     iter_index: int,
     prop_index: int,
-    s3: S3Service = Depends(get_s3_service),
+    s3: S3Client = Depends(get_s3_client),
 ) -> StreamingResponse:
     data = s3.get_after_screenshot(str(session_id), iter_index, prop_index)
     if not data:
@@ -200,7 +200,7 @@ async def get_diff(
     session_id: UUID,
     iter_index: int,
     prop_index: int,
-    s3: S3Service = Depends(get_s3_service),
+    s3: S3Client = Depends(get_s3_client),
 ) -> dict:
     diff = s3.get_diff(str(session_id), iter_index, prop_index)
     if not diff:
@@ -212,11 +212,11 @@ async def get_diff(
 async def stream_session_logs(
     session_id: UUID,
     since_seconds: int | None = None,
-    log_service: LogStreamService = Depends(get_log_stream_service),
+    log_client: LogStreamClient = Depends(get_log_stream_client),
 ) -> EventSourceResponse:
     async def event_generator():  # type: ignore[no-untyped-def]
         try:
-            async for event in log_service.stream_session_logs(
+            async for event in log_client.stream_session_logs(
                 str(session_id), since_seconds=since_seconds
             ):
                 yield {

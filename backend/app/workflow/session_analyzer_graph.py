@@ -3,8 +3,8 @@ from typing import Any
 
 from langgraph.graph import END, START, StateGraph
 
-from app.service.k8s_service import K8sService
-from app.service.s3_service import S3Service
+from app.infra.k8s_client import K8sClient
+from app.infra.s3_client import S3Client
 from app.workflow.state import SessionAnalyzerState
 
 logger = logging.getLogger(__name__)
@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 
 async def create_k8s_job(state: SessionAnalyzerState) -> dict:
     """Create the K8s Job for session-based analysis."""
-    k8s = K8sService()
+    k8s = K8sClient()
     job_name = k8s.create_session_analyzer_job(
         session_id=state["session_id"],
         iteration_index=state["iteration_index"],
@@ -25,7 +25,7 @@ async def create_k8s_job(state: SessionAnalyzerState) -> dict:
 
     from app.di.container import DIContainer
 
-    DIContainer.get_log_stream_service().register_job(
+    DIContainer.get_log_stream_client().register_job(
         session_id=state["session_id"],
         job_name=job_name,
         job_type="analyze",
@@ -36,7 +36,7 @@ async def create_k8s_job(state: SessionAnalyzerState) -> dict:
 
 async def wait_for_job(state: SessionAnalyzerState) -> dict:
     """Poll K8s Job until completion."""
-    k8s = K8sService()
+    k8s = K8sClient()
     k8s_job_name = state["k8s_job_name"]
     assert k8s_job_name is not None
     result = await k8s.wait_for_job(k8s_job_name)
@@ -53,7 +53,7 @@ async def wait_for_job(state: SessionAnalyzerState) -> dict:
 
 async def extract_results(state: SessionAnalyzerState) -> dict:
     """Read analysis results from S3."""
-    s3 = S3Service()
+    s3 = S3Client()
     session_id = state["session_id"]
     iteration_index = state["iteration_index"]
 

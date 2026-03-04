@@ -89,14 +89,14 @@ class TestIterateUseCase:
         session_repo: MockSessionRepository | None = None,
         iteration_repo: MockIterationRepository | None = None,
         proposal_repo: MockProposalRepository | None = None,
-        s3_service: MagicMock | None = None,
+        s3_client: MagicMock | None = None,
     ) -> IterateUseCase:
         return IterateUseCase(
             db=MagicMock(),
             session_repo=session_repo or MockSessionRepository(),
             iteration_repo=iteration_repo or MockIterationRepository(),
             proposal_repo=proposal_repo or MockProposalRepository(),
-            s3_service=s3_service,
+            s3_client=s3_client,
         )
 
     @pytest.mark.asyncio
@@ -188,7 +188,7 @@ class TestIterateUseCase:
         s3 = MagicMock()
         s3.exists.return_value = False
 
-        uc = self._build(session_repo=sr, iteration_repo=ir, proposal_repo=pr, s3_service=s3)
+        uc = self._build(session_repo=sr, iteration_repo=ir, proposal_repo=pr, s3_client=s3)
         with pytest.raises(ValueError, match="No patch file found"):
             await uc.execute(session.id, 0, "instruction")
 
@@ -209,7 +209,7 @@ class TestIterateUseCase:
         s3 = MagicMock()
         s3.exists.return_value = True
 
-        uc = self._build(session_repo=sr, iteration_repo=ir, proposal_repo=pr, s3_service=s3)
+        uc = self._build(session_repo=sr, iteration_repo=ir, proposal_repo=pr, s3_client=s3)
         result = await uc.execute(session.id, 0, "next instruction")
 
         assert result.id == session.id
@@ -383,7 +383,7 @@ class TestCreateSessionUseCase:
             db=MagicMock(),
             session_repo=sr,
             iteration_repo=ir,
-            s3_service=s3,
+            s3_client=s3,
         )
         result = await uc.execute(
             repo_url="https://github.com/test/repo",
@@ -418,7 +418,7 @@ class TestCreateSessionUseCase:
             db=MagicMock(),
             session_repo=sr,
             iteration_repo=ir,
-            s3_service=s3,
+            s3_client=s3,
         )
         result = await uc.execute(
             repo_url="https://github.com/test/repo",

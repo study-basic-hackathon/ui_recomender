@@ -7,6 +7,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session as DbSession
 
 from app.core.config import get_settings
+from app.infra.s3_client import S3Client
 from app.model.session import (
     Iteration,
     IterationStatus,
@@ -24,7 +25,6 @@ from app.repository.protocols import (
     SessionRepositoryProtocol,
 )
 from app.repository.session_repository import SessionRepository
-from app.service.s3_service import S3Service
 from app.workflow.session_analyzer_graph import build_session_analyzer_graph
 from app.workflow.session_create_pr_graph import build_session_create_pr_graph
 from app.workflow.session_implementation_graph import build_session_implementation_graph
@@ -72,12 +72,12 @@ class CreateSessionUseCase:
         db: DbSession,
         session_repo: SessionRepositoryProtocol | None = None,
         iteration_repo: IterationRepositoryProtocol | None = None,
-        s3_service: S3Service | None = None,
+        s3_client: S3Client | None = None,
     ) -> None:
         self.db = db
         self.session_repo = session_repo or SessionRepository(db)
         self.iteration_repo = iteration_repo or IterationRepository(db)
-        self.s3_service = s3_service
+        self.s3_client = s3_client
 
     async def execute(self, repo_url: str, branch: str, instruction: str) -> Session:
         # Create session
@@ -99,7 +99,7 @@ class CreateSessionUseCase:
         iteration = self.iteration_repo.create(iteration)
 
         # Ensure S3 bucket exists
-        s3 = self.s3_service or S3Service()
+        s3 = self.s3_client or S3Client()
         s3._ensure_bucket()
 
         # Run analysis in background
@@ -127,13 +127,13 @@ class IterateUseCase:
         session_repo: SessionRepositoryProtocol | None = None,
         iteration_repo: IterationRepositoryProtocol | None = None,
         proposal_repo: ProposalRepositoryProtocol | None = None,
-        s3_service: S3Service | None = None,
+        s3_client: S3Client | None = None,
     ) -> None:
         self.db = db
         self.session_repo = session_repo or SessionRepository(db)
         self.iteration_repo = iteration_repo or IterationRepository(db)
         self.proposal_repo = proposal_repo or ProposalRepository(db)
-        self.s3_service = s3_service
+        self.s3_client = s3_client
 
     async def execute(
         self, session_id: UUID, selected_proposal_index: int, instruction: str
@@ -159,7 +159,7 @@ class IterateUseCase:
             raise ValueError(f"Proposal is not completed: {proposal.status}")
 
         # Verify the patch exists in S3
-        s3 = self.s3_service or S3Service()
+        s3 = self.s3_client or S3Client()
         diff_k = s3.diff_key(str(session_id), latest.iteration_index, selected_proposal_index)
         if not s3.exists(diff_k):
             raise ValueError("No patch file found for the selected proposal")
@@ -556,7 +556,7 @@ async def recover_stuck_proposals() -> None:
     try:
         proposal_repo = ProposalRepository(db)
         iter_repo = IterationRepository(db)
-        s3 = S3Service()
+        s3 = S3Client()
 
         stuck = proposal_repo.get_all_by_status(ProposalStatus.IMPLEMENTING)
         if not stuck:

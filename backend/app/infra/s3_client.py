@@ -11,7 +11,7 @@ from app.core.config import get_settings
 logger = logging.getLogger(__name__)
 
 
-class S3Service:
+class S3Client:
     """S3-compatible artifact storage (works with AWS S3 and MinIO)."""
 
     def __init__(self) -> None:

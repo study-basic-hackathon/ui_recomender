@@ -10,8 +10,8 @@ from app.core.config import get_settings
 logger = logging.getLogger(__name__)
 
 
-class K8sService:
-    """Kubernetes Job management service."""
+class K8sClient:
+    """Kubernetes Job management client."""
 
     def __init__(self) -> None:
         settings = get_settings()

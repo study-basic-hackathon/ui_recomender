@@ -30,7 +30,7 @@ export default function ProposalCard({ proposal, selected, onToggle }: ProposalC
         style={{ width: '100%', display: 'block' }}
       />
       <div style={{ padding: '10px 12px' }}>
-        <h3 style={{ margin: 0, fontSize: '14px', fontWeight: 600 }}>
+        <h3 style={{ margin: 0, fontSize: '14px', fontWeight: 600, color: '#111' }}>
           #{proposal.proposal_index + 1}: {proposal.title}
         </h3>
       </div>

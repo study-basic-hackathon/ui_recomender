@@ -259,22 +259,21 @@ export default function SessionDetail() {
                 }}
               >
                 {latestIteration.before_screenshot_url && (
-                  <div>
-                    <div
-                      style={{
-                        borderRadius: '8px',
-                        overflow: 'hidden',
-                        border: '1px solid #e5e7eb',
-                      }}
-                    >
-                      <img
-                        src={latestIteration.before_screenshot_url}
-                        alt="Before"
-                        style={{ width: '100%', display: 'block' }}
-                      />
-                    </div>
+                  <div
+                    style={{
+                      border: '1px solid #e5e7eb',
+                      borderRadius: '8px',
+                      overflow: 'hidden',
+                      backgroundColor: '#fff',
+                    }}
+                  >
+                    <img
+                      src={latestIteration.before_screenshot_url}
+                      alt="Before"
+                      style={{ width: '100%', display: 'block' }}
+                    />
                     <div style={{ padding: '10px 12px' }}>
-                      <h3 style={{ margin: 0, fontSize: '14px', fontWeight: 600, color: '#9ca3af' }}>
+                      <h3 style={{ margin: 0, fontSize: '14px', fontWeight: 600, color: '#111' }}>
                         Before
                       </h3>
                     </div>

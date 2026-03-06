@@ -49,6 +49,7 @@ class K8sClient:
                 ),
             ),
             client.V1EnvVar(name="TERM", value="dumb"),
+            client.V1EnvVar(name="CLAUDE_CODE_MAX_OUTPUT_TOKENS", value="128000"),
         ]
         return client.V1Container(
             name="worker",
@@ -292,6 +293,7 @@ class K8sClient:
                 ),
             ),
             client.V1EnvVar(name="TERM", value="dumb"),
+            client.V1EnvVar(name="CLAUDE_CODE_MAX_OUTPUT_TOKENS", value="128000"),
         ] + self._build_s3_env_vars()
         return client.V1Container(
             name="worker",
@@ -461,7 +463,7 @@ class K8sClient:
         return job_name
 
     async def stream_pod_logs(
-        self, job_name: str, tail_lines: int = 100, since_seconds: int | None = None
+        self, job_name: str, tail_lines: int = 1000, since_seconds: int | None = None
     ) -> AsyncIterator[str]:
         """Stream logs from a job's pod. Yields log lines as they arrive.
 

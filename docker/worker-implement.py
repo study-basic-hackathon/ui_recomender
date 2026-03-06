@@ -20,11 +20,11 @@ from claude_agent_sdk.types import StreamEvent
 PLAYWRIGHT_MCP_SERVERS = {
     "playwright": {
         "command": "npx",
-        "args": ["@playwright/mcp@latest", "--headless", "--browser", "chromium"],
+        "args": ["@playwright/mcp@0.0.68", "--headless", "--browser", "chromium", "--viewport-size", "1280x800"],
     },
     "playwright_mobile": {
         "command": "npx",
-        "args": ["@playwright/mcp@latest", "--headless", "--browser", "chromium", "--device", "iPhone 15"],
+        "args": ["@playwright/mcp@0.0.68", "--headless", "--browser", "chromium", "--device", "iPhone 15"],
     },
 }
 
@@ -68,8 +68,6 @@ def _emit_tool_detail(phase: str, tool_name: str, raw_input: str) -> None:
     elif tool_name == "Bash":
         cmd = params.get("command", "?")
         emit_log(phase, f"Running: {cmd[:100]}")
-    elif tool_name in ("Glob", "Grep"):
-        emit_log(phase, f"Searching: {params.get('pattern', '?')}")
 
 
 def get_s3_client():
@@ -174,7 +172,10 @@ Here is the specific design proposal to implement:
         if isinstance(msg, AssistantMessage):
             for block in msg.content:
                 if isinstance(block, TextBlock):
-                    emit_log("implementing", block.text[:200], detail=block.text)
+                    text = block.text.strip()
+                    if text.startswith("Browser") or text.startswith("Searching"):
+                        continue
+                    emit_log("implementing", text[:200], detail=block.text)
                 elif isinstance(block, ToolUseBlock):
                     _emit_tool_detail("implementing", block.name, json.dumps(block.input))
 
@@ -207,7 +208,10 @@ async def _process_messages(client: ClaudeSDKClient, phase: str) -> None:
         if isinstance(msg, AssistantMessage):
             for block in msg.content:
                 if isinstance(block, TextBlock):
-                    emit_log(phase, block.text[:200], detail=block.text)
+                    text = block.text.strip()
+                    if text.startswith("Browser") or text.startswith("Searching"):
+                        continue
+                    emit_log(phase, text[:200], detail=block.text)
                 elif isinstance(block, ToolUseBlock):
                     _emit_tool_detail(phase, block.name, json.dumps(block.input))
 

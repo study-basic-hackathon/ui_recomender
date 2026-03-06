@@ -39,6 +39,11 @@ class ProposalStatus(enum.StrEnum):
     FAILED = "failed"
 
 
+class DeviceType(enum.StrEnum):
+    DESKTOP = "desktop"
+    MOBILE = "mobile"
+
+
 def _utcnow() -> datetime:
     return datetime.now(UTC)
 
@@ -84,6 +89,7 @@ class Iteration(Base):
         default=IterationStatus.PENDING,
     )
     before_screenshot_key: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    device_type: Mapped[DeviceType | None] = mapped_column(String(20), nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     k8s_analyzer_job_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
     version: Mapped[int] = mapped_column(Integer, default=1)

@@ -141,6 +141,8 @@ export default function SessionDetail() {
 
   const iterationStatus = latestIteration?.status ?? 'pending'
   const isInProgress = ['pending', 'analyzing', 'implementing'].includes(iterationStatus)
+  const isMobile = latestIteration?.device_type === 'mobile'
+  const cardMinWidth = isMobile ? '240px' : '400px'
   const completedProposals =
     latestIteration?.proposals.filter((p) => p.status === 'completed' && p.after_screenshot_url) ??
     []
@@ -244,24 +246,6 @@ export default function SessionDetail() {
       {/* Completed: show proposals */}
       {iterationStatus === 'completed' && latestIteration && (
         <>
-          {latestIteration.before_screenshot_url && (
-            <div style={{ marginBottom: '24px' }}>
-              <h2 style={{ fontSize: '18px', marginBottom: '8px' }}>Before</h2>
-              <div style={{ maxWidth: '480px' }}>
-                <img
-                  src={latestIteration.before_screenshot_url}
-                  alt="Before"
-                  style={{
-                    width: '100%',
-                    display: 'block',
-                    borderRadius: '6px',
-                    border: '1px solid #e5e7eb',
-                  }}
-                />
-              </div>
-            </div>
-          )}
-
           {completedProposals.length > 0 && (
             <div>
               <h2 style={{ fontSize: '18px', marginBottom: '12px' }}>
@@ -270,10 +254,32 @@ export default function SessionDetail() {
               <div
                 style={{
                   display: 'grid',
-                  gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
+                  gridTemplateColumns: `repeat(auto-fill, minmax(${cardMinWidth}, 1fr))`,
                   gap: '16px',
                 }}
               >
+                {latestIteration.before_screenshot_url && (
+                  <div>
+                    <div
+                      style={{
+                        borderRadius: '8px',
+                        overflow: 'hidden',
+                        border: '1px solid #e5e7eb',
+                      }}
+                    >
+                      <img
+                        src={latestIteration.before_screenshot_url}
+                        alt="Before"
+                        style={{ width: '100%', display: 'block' }}
+                      />
+                    </div>
+                    <div style={{ padding: '10px 12px' }}>
+                      <h3 style={{ margin: 0, fontSize: '14px', fontWeight: 600, color: '#9ca3af' }}>
+                        Before
+                      </h3>
+                    </div>
+                  </div>
+                )}
                 {completedProposals.map((proposal) => (
                   <ProposalCard
                     key={proposal.id}

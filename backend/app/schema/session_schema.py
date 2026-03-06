@@ -50,6 +50,7 @@ class IterationResponse(BaseModel):
     selected_proposal_index: int | None = None
     status: str
     before_screenshot_url: str | None = None
+    device_type: str | None = None
     error_message: str | None = None
     proposals: list[ProposalResponse] = []
     created_at: datetime

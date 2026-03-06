@@ -83,6 +83,7 @@ def _to_iteration_response(iteration: Iteration, session_id: UUID) -> IterationR
             if iteration.before_screenshot_key
             else None
         ),
+        device_type=iteration.device_type,
         error_message=iteration.error_message,
         proposals=proposals,
         created_at=iteration.created_at,

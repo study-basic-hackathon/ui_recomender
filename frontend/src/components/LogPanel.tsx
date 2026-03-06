@@ -222,8 +222,8 @@ export default function LogPanel({ logState, defaultCollapsed }: LogPanelProps) 
       {/* Expanded content */}
       {expanded && (
         <div>
-          {/* Tab bar (show only if multiple jobs) */}
-          {jobKeys.length > 1 && (
+          {/* Tab bar */}
+          {jobKeys.length > 0 && (
             <div
               style={{
                 display: 'flex',

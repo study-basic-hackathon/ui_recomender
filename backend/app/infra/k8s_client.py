@@ -463,7 +463,7 @@ class K8sClient:
         return job_name
 
     async def stream_pod_logs(
-        self, job_name: str, tail_lines: int = 100, since_seconds: int | None = None
+        self, job_name: str, tail_lines: int = 1000, since_seconds: int | None = None
     ) -> AsyncIterator[str]:
         """Stream logs from a job's pod. Yields log lines as they arrive.
 

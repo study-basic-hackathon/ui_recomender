@@ -70,10 +70,6 @@ def _emit_tool_detail(phase: str, tool_name: str, raw_input: str) -> None:
         emit_log(phase, f"Running: {cmd[:100]}")
     elif tool_name in ("Glob", "Grep"):
         emit_log(phase, f"Searching: {params.get('pattern', '?')}")
-    elif tool_name.startswith("mcp__playwright"):
-        action = tool_name.split("browser_", 1)[-1] if "browser_" in tool_name else tool_name
-        device = "mobile" if "playwright_mobile" in tool_name else "desktop"
-        emit_log(phase, f"Browser ({device}): {action}")
 
 
 def get_s3_client():

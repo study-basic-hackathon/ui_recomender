@@ -70,10 +70,6 @@ def _emit_tool_detail(phase: str, tool_name: str, raw_input: str) -> None:
         emit_log(phase, f"Running: {cmd[:100]}")
     elif tool_name in ("Glob", "Grep"):
         emit_log(phase, f"Searching: {params.get('pattern', '?')}")
-    elif tool_name.startswith("mcp__playwright"):
-        action = tool_name.split("browser_", 1)[-1] if "browser_" in tool_name else tool_name
-        device = "mobile" if "playwright_mobile" in tool_name else "desktop"
-        emit_log(phase, f"Browser ({device}): {action}")
 
 
 def get_s3_client():
@@ -367,6 +363,14 @@ async def main() -> None:
         # Fallback to env var (for backward compat during transition)
         proposal_plan = os.environ.get("PROPOSAL_PLAN", "")
     emit_log("setup", f"Using device type: {device_type}")
+
+    # Log loaded proposal details
+    try:
+        _plan = json.loads(proposal_plan) if isinstance(proposal_plan, str) else proposal_plan
+        title = _plan.get("title", f"proposal-{proposal_index}")
+    except (json.JSONDecodeError, AttributeError):
+        title = f"proposal-{proposal_index}"
+    emit_log("setup", f"Loaded proposal {proposal_index}: {title}")
 
     if not proposal_plan:
         print("Error: No proposal plan provided", file=sys.stderr)

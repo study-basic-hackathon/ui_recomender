@@ -29,7 +29,6 @@ export default function SessionDetail() {
   const [prLoading, setPrLoading] = useState(false)
   const [prError, setPrError] = useState<string | null>(null)
   const prPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
-  const [showContinueForm, setShowContinueForm] = useState(false)
   const [continueInstruction, setContinueInstruction] = useState('')
   const [continueLoading, setContinueLoading] = useState(false)
   const [continueError, setContinueError] = useState<string | null>(null)
@@ -37,7 +36,6 @@ export default function SessionDetail() {
   // Reset selection when session changes
   useEffect(() => {
     setSelectedIndex(null)
-    setShowContinueForm(false)
     setContinueInstruction('')
   }, [sessionId])
 
@@ -72,7 +70,6 @@ export default function SessionDetail() {
       await iterate(sessionId, selectedIndex, continueInstruction)
       refreshSessions()
       refetch()
-      setShowContinueForm(false)
       setContinueInstruction('')
       setSelectedIndex(null)
     } catch (e) {
@@ -289,169 +286,156 @@ export default function SessionDetail() {
                 ))}
               </div>
 
-              {selectedProposal && (
-                <div style={{ marginTop: '16px', textAlign: 'center' }}>
-                  {/* PR URL */}
-                  {selectedProposal.pr_url && (
-                    <a
-                      href={selectedProposal.pr_url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      style={{
-                        display: 'inline-block',
-                        padding: '10px 24px',
-                        backgroundColor: '#059669',
-                        color: '#fff',
-                        borderRadius: '6px',
-                        textDecoration: 'none',
-                        fontSize: '16px',
-                        fontWeight: 600,
-                      }}
-                    >
-                      View PR
-                    </a>
-                  )}
-
-                  {/* PR creating */}
-                  {selectedProposal.pr_status === 'creating' && (
-                    <div
-                      style={{
-                        padding: '10px 24px',
-                        backgroundColor: '#f0f9ff',
-                        borderRadius: '6px',
-                        fontSize: '16px',
-                        color: '#1e40af',
-                      }}
-                    >
-                      Creating PR...
-                    </div>
-                  )}
-
-                  {/* PR failed */}
-                  {selectedProposal.pr_status === 'failed' && (
-                    <div>
-                      <p style={{ color: '#dc2626', fontSize: '16px', marginBottom: '8px' }}>
-                        PR creation failed
-                      </p>
-                      <button
-                        onClick={handleCreatePR}
-                        disabled={prLoading}
+              {/* Create PR button — always visible, disabled until a proposal is selected */}
+              <div style={{ marginTop: '16px' }}>
+                {(() => {
+                  const sp = selectedProposal
+                  if (sp?.pr_url) {
+                    return (
+                      <a
+                        href={sp.pr_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
                         style={{
+                          display: 'inline-block',
                           padding: '10px 24px',
-                          backgroundColor: '#3b82f6',
+                          backgroundColor: '#059669',
                           color: '#fff',
-                          border: 'none',
                           borderRadius: '6px',
-                          cursor: prLoading ? 'not-allowed' : 'pointer',
+                          textDecoration: 'none',
                           fontSize: '16px',
                           fontWeight: 600,
-                          opacity: prLoading ? 0.7 : 1,
                         }}
                       >
-                        {prLoading ? 'Creating PR...' : 'Retry Create PR'}
-                      </button>
-                    </div>
-                  )}
-
-                  {/* Create PR button */}
-                  {!selectedProposal.pr_status && !selectedProposal.pr_url && (
-                    <button
-                      onClick={handleCreatePR}
-                      disabled={prLoading}
-                      style={{
-                        padding: '10px 24px',
-                        backgroundColor: '#3b82f6',
-                        color: '#fff',
-                        border: 'none',
-                        borderRadius: '6px',
-                        cursor: prLoading ? 'not-allowed' : 'pointer',
-                        fontSize: '16px',
-                        fontWeight: 600,
-                        opacity: prLoading ? 0.7 : 1,
-                      }}
-                    >
-                      {prLoading ? 'Creating PR...' : 'Create PR'}
-                    </button>
-                  )}
-
-                  {prError && (
-                    <p style={{ color: '#dc2626', fontSize: '13px', marginTop: '8px' }}>
-                      {prError}
-                    </p>
-                  )}
-
-                  {/* Continue Refining */}
-                  <div style={{ marginTop: '12px' }}>
-                    <button
-                      onClick={() => {
-                        setShowContinueForm(!showContinueForm)
-                        setContinueError(null)
-                      }}
-                      style={{
-                        padding: '10px 24px',
-                        backgroundColor: '#7c3aed',
-                        color: '#fff',
-                        border: 'none',
-                        borderRadius: '6px',
-                        cursor: 'pointer',
-                        fontSize: '16px',
-                        fontWeight: 600,
-                      }}
-                    >
-                      Continue Refining
-                    </button>
-                  </div>
-
-                  {showContinueForm && (
-                    <div style={{ marginTop: '12px', textAlign: 'left' }}>
-                      <textarea
-                        value={continueInstruction}
-                        onChange={(e) => setContinueInstruction(e.target.value)}
-                        placeholder="Describe additional changes to make on top of this design..."
-                        rows={3}
+                        View PR
+                      </a>
+                    )
+                  }
+                  if (sp?.pr_status === 'creating') {
+                    return (
+                      <div
                         style={{
-                          width: '100%',
-                          padding: '8px 12px',
-                          border: '1px solid #4b5563',
-                          borderRadius: '6px',
-                          fontSize: '16px',
-                          resize: 'vertical',
-                          boxSizing: 'border-box',
-                          backgroundColor: '#1a1a1a',
-                          color: 'rgba(255,255,255,0.87)',
-                        }}
-                      />
-                      <button
-                        onClick={handleContinue}
-                        disabled={continueLoading || !continueInstruction.trim()}
-                        style={{
-                          marginTop: '8px',
+                          display: 'inline-block',
                           padding: '10px 24px',
-                          backgroundColor:
-                            continueLoading || !continueInstruction.trim() ? '#4b5563' : '#7c3aed',
-                          color: '#fff',
-                          border: 'none',
+                          backgroundColor: '#f0f9ff',
                           borderRadius: '6px',
-                          cursor:
-                            continueLoading || !continueInstruction.trim()
-                              ? 'not-allowed'
-                              : 'pointer',
                           fontSize: '16px',
-                          fontWeight: 600,
-                          opacity: continueLoading ? 0.7 : 1,
+                          color: '#1e40af',
                         }}
                       >
-                        {continueLoading ? 'Creating...' : 'Start Next Iteration'}
-                      </button>
-                      {continueError && (
-                        <p style={{ color: '#dc2626', fontSize: '13px', marginTop: '8px' }}>
-                          {continueError}
+                        Creating PR...
+                      </div>
+                    )
+                  }
+                  const canCreate = !!sp && !sp.pr_status && !sp.pr_url
+                  const isFailed = sp?.pr_status === 'failed'
+                  return (
+                    <>
+                      {isFailed && (
+                        <p style={{ color: '#dc2626', fontSize: '13px', marginBottom: '8px' }}>
+                          PR creation failed
                         </p>
                       )}
-                    </div>
-                  )}
+                      <button
+                        onClick={handleCreatePR}
+                        disabled={!canCreate && !isFailed || prLoading}
+                        style={{
+                          padding: '10px 24px',
+                          backgroundColor: (canCreate || isFailed) && !prLoading ? '#3b82f6' : '#4b5563',
+                          color: '#fff',
+                          border: 'none',
+                          borderRadius: '6px',
+                          cursor: (canCreate || isFailed) && !prLoading ? 'pointer' : 'not-allowed',
+                          fontSize: '16px',
+                          fontWeight: 600,
+                          opacity: (canCreate || isFailed) ? 1 : 0.5,
+                        }}
+                      >
+                        {prLoading ? 'Creating PR...' : isFailed ? 'Retry Create PR' : 'Create PR'}
+                      </button>
+                    </>
+                  )
+                })()}
+
+                {prError && (
+                  <p style={{ color: '#dc2626', fontSize: '13px', marginTop: '8px' }}>
+                    {prError}
+                  </p>
+                )}
+              </div>
+
+              {/* Continue Refining — chat-style input */}
+              <div
+                style={{
+                  marginTop: '24px',
+                  border: '1px solid #4b5563',
+                  borderRadius: '12px',
+                  backgroundColor: '#1a1a1a',
+                  padding: '12px 16px',
+                }}
+              >
+                <textarea
+                  value={continueInstruction}
+                  onChange={(e) => setContinueInstruction(e.target.value)}
+                  placeholder="Select a base design, then describe additional changes..."
+                  rows={2}
+                  style={{
+                    width: '100%',
+                    padding: 0,
+                    border: 'none',
+                    outline: 'none',
+                    fontSize: '15px',
+                    resize: 'none',
+                    boxSizing: 'border-box',
+                    backgroundColor: 'transparent',
+                    color: 'rgba(255,255,255,0.87)',
+                    lineHeight: '1.5',
+                  }}
+                />
+                <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '8px' }}>
+                  <button
+                    onClick={handleContinue}
+                    disabled={continueLoading || !continueInstruction.trim() || !selectedProposal}
+                    style={{
+                      width: '36px',
+                      height: '36px',
+                      borderRadius: '50%',
+                      border: 'none',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      cursor:
+                        continueLoading || !continueInstruction.trim() || !selectedProposal
+                          ? 'not-allowed'
+                          : 'pointer',
+                      backgroundColor:
+                        continueLoading || !continueInstruction.trim() || !selectedProposal
+                          ? '#4b5563'
+                          : '#fff',
+                      color:
+                        continueLoading || !continueInstruction.trim() || !selectedProposal
+                          ? '#9ca3af'
+                          : '#111',
+                      transition: 'background-color 0.15s',
+                    }}
+                    aria-label="Send"
+                  >
+                    {continueLoading ? (
+                      <span style={{ fontSize: '14px' }}>...</span>
+                    ) : (
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                        <line x1="12" y1="19" x2="12" y2="5" />
+                        <polyline points="5 12 12 5 19 12" />
+                      </svg>
+                    )}
+                  </button>
                 </div>
-              )}
+                {continueError && (
+                  <p style={{ color: '#dc2626', fontSize: '13px', marginTop: '8px' }}>
+                    {continueError}
+                  </p>
+                )}
+              </div>
             </div>
           )}
         </>

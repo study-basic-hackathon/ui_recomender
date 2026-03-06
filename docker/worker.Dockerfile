@@ -48,7 +48,7 @@ RUN apt-get update && apt-get install -y \
 WORKDIR /workspace
 
 # Install Playwright and Chromium (without --with-deps since deps are installed above)
-RUN npm install -g playwright@1.49.0 && \
+RUN npm install -g playwright@1.49.0 @playwright/mcp@latest && \
     npx playwright install chromium
 
 # Install GitHub CLI
@@ -70,7 +70,6 @@ COPY docker/worker-entrypoint.sh /usr/local/bin/worker-entrypoint.sh
 COPY docker/worker-analyze.py /usr/local/bin/worker-analyze.py
 COPY docker/worker-implement.py /usr/local/bin/worker-implement.py
 COPY docker/worker-createpr.py /usr/local/bin/worker-createpr.py
-COPY docker/take-screenshot.mjs /usr/local/bin/take-screenshot.mjs
 RUN chmod +x /usr/local/bin/worker-entrypoint.sh
 
 ENTRYPOINT ["/usr/local/bin/worker-entrypoint.sh"]

@@ -129,15 +129,6 @@ class S3Client:
 
     # ── High-level artifact accessors ──
 
-    def get_proposals(self, session_id: str, iteration_index: int) -> list[dict[str, Any]] | None:
-        data = self.download_json(self.proposals_json_key(session_id, iteration_index))
-        if isinstance(data, dict) and "proposals" in data:
-            result: list[dict[str, Any]] = data["proposals"]
-            return result
-        if isinstance(data, list):
-            return data
-        return None
-
     def get_diff(self, session_id: str, iteration_index: int, proposal_index: int) -> str | None:
         return self.download_text(self.diff_key(session_id, iteration_index, proposal_index))
 

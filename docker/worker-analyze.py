@@ -17,6 +17,32 @@ from botocore.config import Config
 from claude_agent_sdk import ClaudeAgentOptions, ClaudeSDKClient, query, AssistantMessage, TextBlock, ToolUseBlock
 from claude_agent_sdk.types import StreamEvent
 
+PLAYWRIGHT_MCP_SERVERS = {
+    "playwright": {
+        "command": "npx",
+        "args": ["@playwright/mcp@latest", "--headless", "--browser", "chromium"],
+    },
+    "playwright_mobile": {
+        "command": "npx",
+        "args": ["@playwright/mcp@latest", "--headless", "--browser", "chromium", "--device", "iPhone 15"],
+    },
+}
+
+PLAYWRIGHT_MCP_TOOLS = [
+    "mcp__playwright__browser_navigate",
+    "mcp__playwright__browser_snapshot",
+    "mcp__playwright__browser_take_screenshot",
+    "mcp__playwright__browser_wait_for",
+    "mcp__playwright__browser_evaluate",
+    "mcp__playwright__browser_console_messages",
+    "mcp__playwright_mobile__browser_navigate",
+    "mcp__playwright_mobile__browser_snapshot",
+    "mcp__playwright_mobile__browser_take_screenshot",
+    "mcp__playwright_mobile__browser_wait_for",
+    "mcp__playwright_mobile__browser_evaluate",
+    "mcp__playwright_mobile__browser_console_messages",
+]
+
 
 def emit_log(phase: str, message: str, detail: str | None = None) -> None:
     entry = {
@@ -44,6 +70,10 @@ def _emit_tool_detail(phase: str, tool_name: str, raw_input: str) -> None:
         emit_log(phase, f"Running: {cmd[:100]}")
     elif tool_name in ("Glob", "Grep"):
         emit_log(phase, f"Searching: {params.get('pattern', '?')}")
+    elif tool_name.startswith("mcp__playwright"):
+        action = tool_name.split("browser_", 1)[-1] if "browser_" in tool_name else tool_name
+        device = "mobile" if "playwright_mobile" in tool_name else "desktop"
+        emit_log(phase, f"Browser ({device}): {action}")
 
 
 def get_s3_client():
@@ -132,14 +162,15 @@ async def _process_messages(client: ClaudeSDKClient, phase: str) -> None:
                     _emit_tool_detail(phase, block.name, json.dumps(block.input))
 
 
-async def launch_and_screenshot(repo_dir: str, screenshot_output: str) -> None:
+async def launch_and_screenshot(repo_dir: str, screenshot_output: str, device_type: str = "desktop") -> None:
     """Launch dev server and take screenshot in a single session.
 
     Uses ClaudeSDKClient to keep the same conversation context across
     two query() calls so the agent remembers the dev server URL.
     """
     options = ClaudeAgentOptions(
-        allowed_tools=["Read", "Bash", "Glob", "Grep"],
+        allowed_tools=["Read", "Bash", "Glob", "Grep"] + PLAYWRIGHT_MCP_TOOLS,
+        mcp_servers=PLAYWRIGHT_MCP_SERVERS,
         cwd=repo_dir,
         max_turns=20,
         max_budget_usd=1.0,
@@ -157,26 +188,39 @@ Follow these steps:
 3. Start the dev server in the background using Bash (e.g. `npm run dev &` or whatever is appropriate)
 4. Wait for the server to become ready (poll with curl until it responds)
 
-IMPORTANT: Make sure the dev server is running and responding before finishing.
+IMPORTANT:
+- Playwright and Chromium are already installed globally. Do NOT run `npx playwright install` or any Playwright installation commands.
+- Only install the PROJECT's dependencies (e.g. `npm install` in the project directory).
+- Make sure the dev server is running and responding before finishing.
 """)
         await _process_messages(client, "launching")
 
         # Phase 2: take screenshot (same session, so dev server URL is remembered)
         emit_log("screenshot", "Taking before screenshot")
+        device = "playwright_mobile" if device_type == "mobile" else "playwright"
         await client.query(f"""Now take a screenshot of the running application.
 
-You already know the dev server URL from the previous step. Use it to take a screenshot:
-1. Run: `node /usr/local/bin/take-screenshot.mjs <server_url> {screenshot_output}`
-   where <server_url> is the URL the dev server is listening on
-2. Verify the screenshot file was created at {screenshot_output}
+You already know the dev server URL from the previous step.
 
-NOTE: Playwright and Chromium are pre-installed globally in this container. Do NOT install playwright or run `npx playwright install`. Just run `node /usr/local/bin/take-screenshot.mjs <url> <output>` directly.
+Use the **{device}** browser tools (mcp__{device}__*) to take the screenshot.
+
+Steps:
+1. Use mcp__{device}__browser_navigate to open the dev server URL
+2. Use mcp__{device}__browser_wait_for to wait for the page to fully load
+3. Use mcp__{device}__browser_take_screenshot to capture the viewport and save to {screenshot_output}
+
+IMPORTANT:
+- Do NOT use fullPage. Capture only what the user actually sees in the viewport.
+- If a specific element needs to be visible, use mcp__{device}__browser_evaluate to scrollIntoView first.
 """)
         await _process_messages(client, "screenshot")
 
 
-def _extract_proposals_json(collected_text: list[str]) -> list[dict]:
-    """Extract proposals JSON from Claude Agent output, trying multiple strategies."""
+def _extract_proposals_json(collected_text: list[str]) -> dict:
+    """Extract proposals JSON from Claude Agent output, trying multiple strategies.
+
+    Returns a dict with "device_type" and "proposals" keys.
+    """
 
     # Strategy 1: Try each text block from the end (last output is most likely the JSON)
     for text in reversed(collected_text):
@@ -193,14 +237,16 @@ def _extract_proposals_json(collected_text: list[str]) -> list[dict]:
         try:
             data = json.loads(text)
             if isinstance(data, dict) and "proposals" in data:
-                return data["proposals"]
-            if isinstance(data, list):
                 return data
+            if isinstance(data, list):
+                return {"device_type": "desktop", "proposals": data}
         except json.JSONDecodeError:
             pass
 
         # If block contains JSON embedded after prose, find the first '{' and try parsing from there
         brace_idx = text.find('{"proposals"')
+        if brace_idx == -1:
+            brace_idx = text.find('{"device_type"')
         if brace_idx == -1:
             brace_idx = text.find("{\n")
         if brace_idx >= 0:
@@ -208,21 +254,22 @@ def _extract_proposals_json(collected_text: list[str]) -> list[dict]:
             try:
                 data = json.loads(candidate)
                 if isinstance(data, dict) and "proposals" in data:
-                    return data["proposals"]
+                    return data
             except json.JSONDecodeError:
                 pass
 
-    # Strategy 2: Find {"proposals" in concatenated text and use JSONDecoder to parse
+    # Strategy 2: Find JSON object in concatenated text and use JSONDecoder to parse
     full_text = "\n".join(collected_text)
     decoder = json.JSONDecoder()
-    idx = full_text.find('{"proposals"')
-    if idx >= 0:
-        try:
-            data, _ = decoder.raw_decode(full_text, idx)
-            if isinstance(data, dict) and "proposals" in data:
-                return data["proposals"]
-        except json.JSONDecodeError:
-            pass
+    for marker in ['{"device_type"', '{"proposals"']:
+        idx = full_text.find(marker)
+        if idx >= 0:
+            try:
+                data, _ = decoder.raw_decode(full_text, idx)
+                if isinstance(data, dict) and "proposals" in data:
+                    return data
+            except json.JSONDecodeError:
+                pass
 
     # Strategy 3: Extract from markdown code blocks in full text
     for pattern in [r'```json\s*(.*?)```', r'```\s*(.*?)```']:
@@ -231,9 +278,9 @@ def _extract_proposals_json(collected_text: list[str]) -> list[dict]:
             try:
                 data = json.loads(m.group(1).strip())
                 if isinstance(data, dict) and "proposals" in data:
-                    return data["proposals"]
-                if isinstance(data, list):
                     return data
+                if isinstance(data, list):
+                    return {"device_type": "desktop", "proposals": data}
             except json.JSONDecodeError:
                 continue
 
@@ -242,13 +289,16 @@ def _extract_proposals_json(collected_text: list[str]) -> list[dict]:
     for i, t in enumerate(collected_text):
         print(f"Block {i}: {t[:200]}", file=sys.stderr)
 
-    return []
+    return {"device_type": "desktop", "proposals": []}
 
 
 async def generate_proposals(
     repo_dir: str, instruction: str, num_proposals: int
-) -> list[dict]:
-    """Use Claude Agent SDK to analyze the repo and generate design proposals."""
+) -> dict:
+    """Use Claude Agent SDK to analyze the repo and generate design proposals.
+
+    Returns a dict with "device_type" and "proposals" keys.
+    """
     prompt = f"""You are a UI/UX design expert analyzing a web application repository.
 The user wants the following UI changes:
 
@@ -256,17 +306,23 @@ The user wants the following UI changes:
 
 ## Your Task
 
-1. First, analyze the codebase using the available tools (Read, Glob, Grep) to understand the project structure, framework, and relevant files.
-2. After sufficient analysis, generate exactly {num_proposals} different design proposals.
-3. Each proposal should take a meaningfully different approach.
+1. Analyze the codebase using the available tools (Read, Glob, Grep) to understand the project structure, framework, and relevant files.
+2. Determine the project's target platform:
+   - Check package.json for mobile frameworks (react-native, @capacitor, @ionic, expo)
+   - Check HTML viewport meta tag and CSS media queries
+   - If the project targets mobile or is mobile-first → set device_type to "mobile"
+   - Otherwise → set device_type to "desktop"
+3. Generate exactly {num_proposals} different design proposals, each taking a meaningfully different approach.
 
 ## Output Format
 
 IMPORTANT: After your analysis, you MUST output EXACTLY ONE valid JSON object as your FINAL message.
 Do not include any text before or after the JSON. Do not wrap it in markdown code blocks.
+Include "device_type" at the top level of the JSON.
 The JSON must follow this exact structure:
 
 {{
+  "device_type": "desktop|mobile",
   "proposals": [
     {{
       "title": "Short title (under 50 chars)",
@@ -391,20 +447,27 @@ async def main() -> None:
                 file=sys.stderr,
             )
 
-    # Step 2-3: Launch project and take before screenshot (single session)
-    before_path = f"{tmp_dir}/before.png"
-    await launch_and_screenshot(repo_dir, before_path)
-
-    # Step 4: Generate design proposals via Claude Agent SDK
+    # Step 2: Code analysis + device detection + proposal generation (no browser needed)
     emit_log("analyzing", "Generating design proposals")
     try:
-        proposals = await generate_proposals(repo_dir, instruction, num_proposals)
+        result = await generate_proposals(repo_dir, instruction, num_proposals)
     except Exception as e:
         emit_log("analyzing", f"Analysis interrupted: {e}", detail=str(e))
-        proposals = []
-    emit_log("analyzing", f"Generated {len(proposals)} proposals")
+        result = {"device_type": "desktop", "proposals": []}
 
-    # Step 5: Upload results to S3
+    proposals = result.get("proposals", [])
+    device_type = result.get("device_type", "desktop")
+    if isinstance(device_type, str):
+        device_type = device_type.lower()
+    if device_type not in ("desktop", "mobile"):
+        device_type = "desktop"
+    emit_log("analyzing", f"Generated {len(proposals)} proposals (device: {device_type})")
+
+    # Step 3: Launch dev server + take before screenshot (with determined device_type)
+    before_path = f"{tmp_dir}/before.png"
+    await launch_and_screenshot(repo_dir, before_path, device_type=device_type)
+
+    # Step 4: Upload results to S3
     emit_log("uploading", "Uploading results to S3")
 
     # Upload before screenshot
@@ -416,8 +479,8 @@ async def main() -> None:
             content_type="image/png",
         )
 
-    # Upload proposals.json
-    proposals_data = {"proposals": proposals}
+    # Upload proposals.json (includes device_type)
+    proposals_data = {"device_type": device_type, "proposals": proposals}
     s3_upload_text(
         s3, bucket,
         f"{s3_prefix}/proposals.json",

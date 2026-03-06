@@ -17,6 +17,32 @@ from botocore.config import Config
 from claude_agent_sdk import ClaudeAgentOptions, ClaudeSDKClient, query, AssistantMessage, TextBlock, ToolUseBlock
 from claude_agent_sdk.types import StreamEvent
 
+PLAYWRIGHT_MCP_SERVERS = {
+    "playwright": {
+        "command": "npx",
+        "args": ["@playwright/mcp@latest", "--headless", "--browser", "chromium"],
+    },
+    "playwright_mobile": {
+        "command": "npx",
+        "args": ["@playwright/mcp@latest", "--headless", "--browser", "chromium", "--device", "iPhone 15"],
+    },
+}
+
+PLAYWRIGHT_MCP_TOOLS = [
+    "mcp__playwright__browser_navigate",
+    "mcp__playwright__browser_snapshot",
+    "mcp__playwright__browser_take_screenshot",
+    "mcp__playwright__browser_wait_for",
+    "mcp__playwright__browser_evaluate",
+    "mcp__playwright__browser_console_messages",
+    "mcp__playwright_mobile__browser_navigate",
+    "mcp__playwright_mobile__browser_snapshot",
+    "mcp__playwright_mobile__browser_take_screenshot",
+    "mcp__playwright_mobile__browser_wait_for",
+    "mcp__playwright_mobile__browser_evaluate",
+    "mcp__playwright_mobile__browser_console_messages",
+]
+
 
 def emit_log(phase: str, message: str, detail: str | None = None) -> None:
     entry = {
@@ -44,6 +70,10 @@ def _emit_tool_detail(phase: str, tool_name: str, raw_input: str) -> None:
         emit_log(phase, f"Running: {cmd[:100]}")
     elif tool_name in ("Glob", "Grep"):
         emit_log(phase, f"Searching: {params.get('pattern', '?')}")
+    elif tool_name.startswith("mcp__playwright"):
+        action = tool_name.split("browser_", 1)[-1] if "browser_" in tool_name else tool_name
+        device = "mobile" if "playwright_mobile" in tool_name else "desktop"
+        emit_log(phase, f"Browser ({device}): {action}")
 
 
 def get_s3_client():
@@ -197,16 +227,18 @@ async def kill_dev_servers(repo_dir: str) -> None:
     await asyncio.sleep(2)
 
 
-async def fix_with_claude(repo_dir: str, error_message: str) -> None:
+async def fix_with_claude(repo_dir: str, error_message: str, device_type: str = "desktop") -> None:
     """Use Claude to diagnose and fix the dev server launch failure."""
     options = ClaudeAgentOptions(
-        allowed_tools=["Read", "Write", "Edit", "Bash", "Glob", "Grep"],
+        allowed_tools=["Read", "Write", "Edit", "Bash", "Glob", "Grep"] + PLAYWRIGHT_MCP_TOOLS,
+        mcp_servers=PLAYWRIGHT_MCP_SERVERS,
         cwd=repo_dir,
         max_turns=20,
         max_budget_usd=1.5,
         include_partial_messages=True,
     )
 
+    device = "playwright_mobile" if device_type == "mobile" else "playwright"
     async with ClaudeSDKClient(options=options) as client:
         await client.query(f"""The dev server failed to start in the project at {repo_dir}.
 
@@ -216,7 +248,13 @@ Here is the error output:
 {error_message}
 ```
 
-Please diagnose and fix the issue. Common causes include:
+Please diagnose and fix the issue:
+1. Use mcp__{device}__browser_console_messages to check for JavaScript errors
+2. Use mcp__{device}__browser_navigate and mcp__{device}__browser_snapshot to check the page state
+3. Read source files to identify root cause
+4. Fix the code. Make minimal changes.
+
+Common causes include:
 - Missing or incorrect dependencies (run `npm install` or similar)
 - Build errors in the source code (syntax errors, import errors, type errors)
 - Port conflicts (change the port configuration)
@@ -227,14 +265,15 @@ Fix the code so the dev server can start successfully. Make minimal, targeted ch
         await _process_messages(client, "implementing")
 
 
-async def launch_and_screenshot(repo_dir: str, screenshot_output: str) -> None:
+async def launch_and_screenshot(repo_dir: str, screenshot_output: str, device_type: str = "desktop") -> None:
     """Launch dev server and take screenshot in a single session.
 
     Uses ClaudeSDKClient to keep the same conversation context across
     two query() calls so the agent remembers the dev server URL.
     """
     options = ClaudeAgentOptions(
-        allowed_tools=["Read", "Bash", "Glob", "Grep"],
+        allowed_tools=["Read", "Bash", "Glob", "Grep"] + PLAYWRIGHT_MCP_TOOLS,
+        mcp_servers=PLAYWRIGHT_MCP_SERVERS,
         cwd=repo_dir,
         max_turns=20,
         max_budget_usd=1.0,
@@ -252,20 +291,30 @@ Follow these steps:
 3. Start the dev server in the background using Bash (e.g. `npm run dev &` or whatever is appropriate)
 4. Wait for the server to become ready (poll with curl until it responds)
 
-IMPORTANT: Make sure the dev server is running and responding before finishing.
+IMPORTANT:
+- Playwright and Chromium are already installed globally. Do NOT run `npx playwright install` or any Playwright installation commands.
+- Only install the PROJECT's dependencies (e.g. `npm install` in the project directory).
+- Make sure the dev server is running and responding before finishing.
 """)
         await _process_messages(client, "launching")
 
         # Phase 2: take screenshot (same session, so dev server URL is remembered)
         emit_log("screenshot", "Taking after screenshot")
+        device = "playwright_mobile" if device_type == "mobile" else "playwright"
         await client.query(f"""Now take a screenshot of the running application.
 
-You already know the dev server URL from the previous step. Use it to take a screenshot:
-1. Run: `node /usr/local/bin/take-screenshot.mjs <server_url> {screenshot_output}`
-   where <server_url> is the URL the dev server is listening on
-2. Verify the screenshot file was created at {screenshot_output}
+You already know the dev server URL from the previous step.
 
-NOTE: Playwright and Chromium are pre-installed globally in this container. Do NOT install playwright or run `npx playwright install`. Just run `node /usr/local/bin/take-screenshot.mjs <url> <output>` directly.
+Use the **{device}** browser tools (mcp__{device}__*) to take the screenshot.
+
+Steps:
+1. Use mcp__{device}__browser_navigate to open the dev server URL
+2. Use mcp__{device}__browser_wait_for to wait for the page to fully load
+3. Use mcp__{device}__browser_take_screenshot to capture the viewport and save to {screenshot_output}
+
+IMPORTANT:
+- Do NOT use fullPage. Capture only what the user actually sees in the viewport.
+- If a specific element needs to be visible, use mcp__{device}__browser_evaluate to scrollIntoView first.
 """)
         await _process_messages(client, "screenshot")
 
@@ -301,11 +350,23 @@ async def main() -> None:
     plan_key = f"{s3_prefix}/plan.json"
     local_plan = f"{tmp_dir}/plan.json"
     emit_log("cloning", f"Downloading plan from S3: {plan_key}")
+    device_type = "desktop"
     if s3_download(s3, bucket, plan_key, local_plan):
-        proposal_plan = Path(local_plan).read_text()
+        raw = Path(local_plan).read_text()
+        try:
+            plan_data = json.loads(raw)
+            proposal_plan = plan_data.get("plan", raw)
+            device_type = plan_data.get("device_type", "desktop")
+            if isinstance(device_type, str):
+                device_type = device_type.lower()
+            if device_type not in ("desktop", "mobile"):
+                device_type = "desktop"
+        except json.JSONDecodeError:
+            proposal_plan = raw  # backward compat
     else:
         # Fallback to env var (for backward compat during transition)
         proposal_plan = os.environ.get("PROPOSAL_PLAN", "")
+    emit_log("setup", f"Using device type: {device_type}")
 
     if not proposal_plan:
         print("Error: No proposal plan provided", file=sys.stderr)
@@ -376,7 +437,7 @@ async def main() -> None:
     last_error = None
     for attempt in range(max_retries + 1):
         try:
-            await launch_and_screenshot(repo_dir, screenshot_path)
+            await launch_and_screenshot(repo_dir, screenshot_path, device_type=device_type)
             last_error = None
             break  # success
         except Exception as e:
@@ -388,7 +449,7 @@ async def main() -> None:
                     detail=last_error,
                 )
                 await kill_dev_servers(repo_dir)
-                await fix_with_claude(repo_dir, last_error)
+                await fix_with_claude(repo_dir, last_error, device_type=device_type)
             else:
                 emit_log(
                     "implementing",

@@ -23,6 +23,7 @@ class SessionAnalyzerState(TypedDict):
     # Output
     proposals: list[dict] | None
     before_screenshot_key: str | None
+    device_type: str | None
 
 
 class SessionImplementationState(TypedDict):
@@ -35,6 +36,7 @@ class SessionImplementationState(TypedDict):
     branch: str
     proposal_index: int
     proposal_plan: str
+    device_type: str
 
     # Patch context (for iter > 0)
     selected_proposal_index: int | None

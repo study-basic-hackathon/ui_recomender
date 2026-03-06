@@ -1,3 +1,4 @@
+import json as _json
 import logging
 from typing import Any
 
@@ -15,9 +16,13 @@ async def create_k8s_job(state: SessionImplementationState) -> dict:
     k8s = K8sClient()
     s3 = S3Client()
 
-    # Write proposal plan to S3 for the worker to read
+    # Write proposal plan to S3 for the worker to read (includes device_type)
     plan_key = s3.plan_key(state["session_id"], state["iteration_index"], state["proposal_index"])
-    s3.upload_text(plan_key, state["proposal_plan"])
+    plan_with_device = _json.dumps({
+        "plan": state["proposal_plan"],
+        "device_type": state.get("device_type", "desktop"),
+    }, ensure_ascii=False)
+    s3.upload_text(plan_key, plan_with_device)
 
     job_name = k8s.create_session_implementation_job(
         session_id=state["session_id"],

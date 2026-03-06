@@ -308,10 +308,12 @@ async def _run_session_analysis(
                 "error": None,
                 "proposals": None,
                 "before_screenshot_key": None,
+                "device_type": None,
             }
         )
 
         if result.get("proposals"):
+            device_type = result.get("device_type", "desktop")
             proposals = []
             for i, prop in enumerate(result["proposals"]):
                 p = Proposal(
@@ -333,10 +335,11 @@ async def _run_session_analysis(
                 before_screenshot_key=result.get("before_screenshot_key"),
             )
             logger.info(
-                "Session %s iter %d analysis done: %d proposals",
+                "Session %s iter %d analysis done: %d proposals (device: %s)",
                 session_id,
                 iteration_index,
                 len(proposals),
+                device_type,
             )
 
             # Auto-trigger implementation for ALL proposals
@@ -355,6 +358,7 @@ async def _run_session_analysis(
                         proposal_id=str(proposal.id),
                         plan_json=str(proposal.plan),
                         selected_proposal_index=selected_proposal_index,
+                        device_type=device_type,
                     )
                 )
         else:
@@ -394,6 +398,7 @@ async def _run_session_implementation(
     proposal_id: str,
     plan_json: str,
     selected_proposal_index: int | None,
+    device_type: str = "desktop",
 ) -> None:
     """Background: run one session-based implementation workflow."""
     db = SessionLocal()
@@ -417,6 +422,7 @@ async def _run_session_implementation(
                 "branch": branch,
                 "proposal_index": proposal_index,
                 "proposal_plan": plan_json,
+                "device_type": device_type,
                 "selected_proposal_index": selected_proposal_index,
                 "k8s_job_name": None,
                 "status": "pending",

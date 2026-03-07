@@ -161,7 +161,7 @@ async def _process_messages(client: ClaudeSDKClient, phase: str) -> None:
                     _emit_tool_detail(phase, block.name, json.dumps(block.input))
 
 
-async def launch_and_screenshot(repo_dir: str, screenshot_output: str, device_type: str = "desktop") -> None:
+async def launch_and_screenshot(repo_dir: str, screenshot_output: str, device_type: str = "desktop", instruction: str = "") -> None:
     """Launch dev server and take screenshot in a single session.
 
     Uses ClaudeSDKClient to keep the same conversation context across
@@ -197,19 +197,35 @@ IMPORTANT:
         # Phase 2: take screenshot (same session, so dev server URL is remembered)
         emit_log("screenshot", "Taking: before screenshot")
         device = "playwright_mobile" if device_type == "mobile" else "playwright"
+
+        instruction_block = ""
+        if instruction:
+            instruction_block = f"""
+## User's change request
+\"\"\"{instruction}\"\"\"
+
+Based on this request, you MUST determine which page and area to screenshot:
+1. Read the project's routing configuration (e.g. React Router, Next.js pages, Vue Router) to find the relevant page/route
+2. Navigate to the page that is most relevant to the user's request (NOT necessarily the root `/`)
+3. If the change target is below the fold (e.g. footer, bottom section), use mcp__{device}__browser_evaluate to scroll the element into view before taking the screenshot
+"""
+
         await client.query(f"""Now take a screenshot of the running application.
 
 You already know the dev server URL from the previous step.
 
 Use the **{device}** browser tools (mcp__{device}__*) to take the screenshot.
-
+{instruction_block}
 Steps:
-1. Use mcp__{device}__browser_navigate to open the dev server URL
-2. Use mcp__{device}__browser_wait_for to wait for the page to fully load
-3. Use mcp__{device}__browser_take_screenshot to capture the viewport and save to {screenshot_output}
+1. Read the project's routing configuration to identify the correct page for the user's request
+2. Use mcp__{device}__browser_navigate to open the appropriate page URL
+3. Use mcp__{device}__browser_wait_for to wait for the page to fully load
+4. If the target area is not visible in the viewport, use mcp__{device}__browser_evaluate to scroll it into view
+5. Use mcp__{device}__browser_take_screenshot to capture the viewport and save to {screenshot_output}
 
 IMPORTANT:
 - Do NOT use fullPage. Capture only what the user actually sees in the viewport.
+- Navigate to the page most relevant to the user's request, not just the root URL.
 - If a specific element needs to be visible, use mcp__{device}__browser_evaluate to scrollIntoView first.
 """)
         await _process_messages(client, "screenshot")
@@ -467,7 +483,7 @@ async def main() -> None:
 
     # Step 3: Launch dev server + take before screenshot (with determined device_type)
     before_path = f"{tmp_dir}/before.png"
-    await launch_and_screenshot(repo_dir, before_path, device_type=device_type)
+    await launch_and_screenshot(repo_dir, before_path, device_type=device_type, instruction=instruction)
 
     # Step 4: Upload results to S3
     # Upload before screenshot

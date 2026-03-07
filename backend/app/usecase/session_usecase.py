@@ -360,6 +360,7 @@ async def _run_session_analysis(
                         plan_json=str(proposal.plan),
                         selected_proposal_index=selected_proposal_index,
                         device_type=device_type,
+                        instruction=instruction,
                     )
                 )
         else:
@@ -400,6 +401,7 @@ async def _run_session_implementation(
     plan_json: str,
     selected_proposal_index: int | None,
     device_type: str = "desktop",
+    instruction: str = "",
 ) -> None:
     """Background: run one session-based implementation workflow."""
     db = SessionLocal()
@@ -424,6 +426,7 @@ async def _run_session_implementation(
                 "proposal_index": proposal_index,
                 "proposal_plan": plan_json,
                 "device_type": device_type,
+                "instruction": instruction,
                 "selected_proposal_index": selected_proposal_index,
                 "k8s_job_name": None,
                 "status": "pending",

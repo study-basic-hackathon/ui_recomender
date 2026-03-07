@@ -22,6 +22,7 @@ async def create_k8s_job(state: SessionImplementationState) -> dict:
         {
             "plan": state["proposal_plan"],
             "device_type": state.get("device_type", "desktop"),
+            "instruction": state.get("instruction", ""),
         },
         ensure_ascii=False,
     )

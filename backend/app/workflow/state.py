@@ -37,6 +37,7 @@ class SessionImplementationState(TypedDict):
     proposal_index: int
     proposal_plan: str
     device_type: str
+    instruction: str
 
     # Patch context (for iter > 0)
     selected_proposal_index: int | None

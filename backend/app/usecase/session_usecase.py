@@ -348,6 +348,16 @@ async def _run_session_analysis(
                 iter_repo, UUID(iteration_id), IterationStatus.IMPLEMENTING
             )
             for proposal in proposals:
+                prop = result["proposals"][proposal.proposal_index]
+                rich_plan_json = json.dumps(
+                    {
+                        "title": prop.get("title", ""),
+                        "concept": prop.get("concept", ""),
+                        "plan": prop.get("plan", []),
+                        "files": prop.get("files", []),
+                    },
+                    ensure_ascii=False,
+                )
                 asyncio.create_task(
                     _run_session_implementation(
                         session_id=session_id,
@@ -357,7 +367,7 @@ async def _run_session_analysis(
                         branch=branch,
                         proposal_index=proposal.proposal_index,
                         proposal_id=str(proposal.id),
-                        plan_json=str(proposal.plan),
+                        plan_json=rich_plan_json,
                         selected_proposal_index=selected_proposal_index,
                         device_type=device_type,
                         instruction=instruction,

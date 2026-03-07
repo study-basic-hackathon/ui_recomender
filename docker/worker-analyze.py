@@ -12,8 +12,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-import boto3
-from botocore.config import Config
 from claude_agent_sdk import (
     ClaudeAgentOptions,
     ClaudeSDKClient,
@@ -23,179 +21,18 @@ from claude_agent_sdk import (
     ToolUseBlock,
 )
 from claude_agent_sdk.types import StreamEvent
-
-PLAYWRIGHT_MCP_SERVERS = {
-    "playwright": {
-        "command": "npx",
-        "args": [
-            "@playwright/mcp@0.0.68",
-            "--headless",
-            "--browser",
-            "chromium",
-            "--viewport-size",
-            "1280x800",
-        ],
-    },
-    "playwright_mobile": {
-        "command": "npx",
-        "args": [
-            "@playwright/mcp@0.0.68",
-            "--headless",
-            "--browser",
-            "chromium",
-            "--device",
-            "iPhone 15",
-        ],
-    },
-}
-
-PLAYWRIGHT_MCP_TOOLS = [
-    "mcp__playwright__browser_navigate",
-    "mcp__playwright__browser_snapshot",
-    "mcp__playwright__browser_take_screenshot",
-    "mcp__playwright__browser_wait_for",
-    "mcp__playwright__browser_evaluate",
-    "mcp__playwright__browser_console_messages",
-    "mcp__playwright_mobile__browser_navigate",
-    "mcp__playwright_mobile__browser_snapshot",
-    "mcp__playwright_mobile__browser_take_screenshot",
-    "mcp__playwright_mobile__browser_wait_for",
-    "mcp__playwright_mobile__browser_evaluate",
-    "mcp__playwright_mobile__browser_console_messages",
-]
-
-
-def emit_log(phase: str, message: str, detail: str | None = None) -> None:
-    entry = {
-        "phase": phase,
-        "message": message,
-    }
-    if detail:
-        entry["detail"] = detail
-    print(f"@@LOG@@{json.dumps(entry, ensure_ascii=False)}", flush=True)
-
-
-def _emit_tool_detail(phase: str, tool_name: str, raw_input: str) -> None:
-    """Parse tool input JSON and emit a human-readable log line."""
-    try:
-        params = json.loads(raw_input)
-    except json.JSONDecodeError:
-        return
-
-    if tool_name == "Read":
-        path = params.get("file_path", "?").replace("/workspace/repo/", "")
-        emit_log(phase, f"Reading: {path}")
-    elif tool_name in ("Write", "Edit"):
-        path = params.get("file_path", "?").replace("/workspace/repo/", "")
-        emit_log(phase, f"Editing: {path}")
-    elif tool_name == "Bash":
-        cmd = (
-            params.get("command", "?")
-            .replace("/workspace/repo/", "")
-            .replace("/workspace/repo", ".")
-        )
-        emit_log(phase, f"Running: {cmd[:100]}")
-
-
-def get_s3_client():
-    kwargs = {
-        "service_name": "s3",
-        "region_name": os.environ.get("S3_REGION", "us-east-1"),
-        "config": Config(signature_version="s3v4"),
-    }
-    endpoint = os.environ.get("S3_ENDPOINT_URL")
-    if endpoint:
-        kwargs["endpoint_url"] = endpoint
-        kwargs["aws_access_key_id"] = os.environ.get("S3_ACCESS_KEY", "minioadmin")
-        kwargs["aws_secret_access_key"] = os.environ.get("S3_SECRET_KEY", "minioadmin")
-    return boto3.client(**kwargs)
-
-
-def s3_download(s3, bucket, key, local_path):
-    try:
-        s3.download_file(bucket, key, local_path)
-        return True
-    except Exception as e:
-        print(f"S3 download failed for {key}: {e}", file=sys.stderr)
-        return False
-
-
-def s3_upload_file(
-    s3, bucket, key, local_path, content_type="application/octet-stream"
-):
-    for attempt in range(3):
-        try:
-            s3.upload_file(
-                local_path,
-                bucket,
-                key,
-                ExtraArgs={"ContentType": content_type},
-            )
-            print(f"Uploaded {key}")
-            return
-        except Exception as e:
-            print(
-                f"S3 upload attempt {attempt + 1} failed for {key}: {e}",
-                file=sys.stderr,
-            )
-            if attempt == 2:
-                raise
-
-
-def s3_upload_text(s3, bucket, key, text, content_type="text/plain"):
-    for attempt in range(3):
-        try:
-            s3.put_object(
-                Bucket=bucket,
-                Key=key,
-                Body=text.encode("utf-8"),
-                ContentType=content_type,
-            )
-            print(f"Uploaded {key}")
-            return
-        except Exception as e:
-            print(
-                f"S3 upload attempt {attempt + 1} failed for {key}: {e}",
-                file=sys.stderr,
-            )
-            if attempt == 2:
-                raise
-
-
-async def _process_messages(client: ClaudeSDKClient, phase: str) -> None:
-    """Process messages from ClaudeSDKClient, emitting logs for a given phase."""
-    current_tool = None
-    tool_input_chunks = ""
-
-    async for msg in client.receive_response():
-        if isinstance(msg, StreamEvent):
-            event = msg.event
-            etype = event.get("type")
-            if etype == "content_block_start":
-                content_block = event.get("content_block", {})
-                if content_block.get("type") == "tool_use":
-                    current_tool = content_block.get("name")
-                    tool_input_chunks = ""
-            elif etype == "content_block_delta":
-                delta = event.get("delta", {})
-                if delta.get("type") == "input_json_delta":
-                    tool_input_chunks += delta.get("partial_json", "")
-            elif etype == "content_block_stop":
-                if current_tool and tool_input_chunks:
-                    _emit_tool_detail(phase, current_tool, tool_input_chunks)
-                current_tool = None
-                tool_input_chunks = ""
-            continue
-
-        if isinstance(msg, AssistantMessage):
-            for block in msg.content:
-                if isinstance(block, TextBlock):
-                    text = block.text.strip()
-                    if text.startswith("Browser") or text.startswith("Searching"):
-                        continue
-                    emit_log(phase, f"Thinking: {text[:200]}", detail=block.text)
-                elif isinstance(block, ToolUseBlock):
-                    _emit_tool_detail(phase, block.name, json.dumps(block.input))
+from prompts import LAUNCH_DEV_SERVER_PROMPT, build_screenshot_prompt, build_analyze_prompt, SYSTEM_PROMPT, READONLY_SYSTEM_PROMPT
+from worker_common import (
+    emit_log,
+    _emit_tool_detail,
+    process_messages,
+    get_s3_client,
+    s3_download,
+    s3_upload_file,
+    s3_upload_text,
+    PLAYWRIGHT_MCP_SERVERS,
+    PLAYWRIGHT_MCP_TOOLS,
+)
 
 
 async def launch_and_screenshot(
@@ -210,6 +47,7 @@ async def launch_and_screenshot(
     two query() calls so the agent remembers the dev server URL.
     """
     options = ClaudeAgentOptions(
+        system_prompt=READONLY_SYSTEM_PROMPT,
         allowed_tools=["Read", "Bash", "Glob", "Grep"] + PLAYWRIGHT_MCP_TOOLS,
         mcp_servers=PLAYWRIGHT_MCP_SERVERS,
         cwd=repo_dir,
@@ -221,56 +59,25 @@ async def launch_and_screenshot(
     async with ClaudeSDKClient(options=options) as client:
         # Phase 1: install deps + start dev server
         emit_log("launching", "Launching: project")
-        await client.query("""Launch the dev server for this web application.
-
-## CRITICAL RULES
-- Do NOT run `npx playwright install` -- Playwright is pre-installed.
-- Do NOT install global npm packages.
-- Do NOT run docker-compose -- Docker is not available in this environment.
-
-## Steps
-
-1. Read package.json to understand the project structure and scripts.
-2. If .env.example exists, copy it to .env. Set API URLs to http://localhost:8000.
-3. Run `npm install` in the project root (or frontend directory if monorepo).
-4. If the project has a backend (check for /server, /backend, /api directories):
-   - For Node.js: `cd <backend-dir> && npm install && npm run dev &`
-   - For Python: `cd <backend-dir> && pip install -r requirements.txt && python -m uvicorn main:app --port 8000 &` (or similar)
-   - If backend needs PostgreSQL/Redis/Docker, skip it and proceed with frontend only.
-5. Start the frontend: `npm run dev &`
-6. Poll until ready: `for i in $(seq 1 30); do curl -s http://localhost:5173 > /dev/null && break; sleep 2; done`
-   (Adjust the port based on the framework: Vite=5173, Next.js=3000, CRA=3000, Angular=4200)
-7. Confirm with `curl -s http://localhost:<port> | head -5`
-
-After the server is running, state the URL (e.g., "Dev server is running at http://localhost:5173").
-""")
-        await _process_messages(client, "launching")
+        await client.query(LAUNCH_DEV_SERVER_PROMPT)
+        await process_messages(client,"launching")
 
         # Phase 2: take screenshot (same session, so dev server URL is remembered)
         emit_log("screenshot", "Taking: before screenshot")
         device = "playwright_mobile" if device_type == "mobile" else "playwright"
+        await client.query(build_screenshot_prompt(device, screenshot_output, instruction))
+        await process_messages(client,"screenshot")
 
-        instruction_block = ""
-        if instruction:
-            instruction_block = f"""
-The user requested: \"\"\"{instruction}\"\"\"
-Navigate to the page most relevant to this request, not just the root URL.
-If the target content is below the fold, scroll it into view before taking the screenshot.
-"""
 
-        await client.query(f"""Take a screenshot of the running application.
-{instruction_block}
-Steps:
-1. Use mcp__{device}__browser_navigate to open the dev server URL from the previous step
-2. Use mcp__{device}__browser_wait_for with text that should appear on the loaded page (e.g., a heading, nav item, or button label)
-3. Use mcp__{device}__browser_snapshot to verify the page rendered correctly (not a blank page or error)
-4. If the page shows a loading spinner or error, wait 5 seconds and retry the snapshot
-5. If you need to scroll to the target area, use mcp__{device}__browser_evaluate with: `document.querySelector('<selector>').scrollIntoView({{behavior: 'smooth', block: 'center'}})`
-6. Use mcp__{device}__browser_take_screenshot to save to {screenshot_output}
-
-IMPORTANT: Do NOT use fullPage option. Capture only the visible viewport.
-""")
-        await _process_messages(client, "screenshot")
+def _validate_proposals(data: dict) -> dict:
+    """Validate and sanitize proposals structure."""
+    proposals = data.get("proposals", [])
+    valid = []
+    for p in proposals:
+        if isinstance(p, dict) and "title" in p and "plan" in p and "files" in p:
+            valid.append(p)
+    data["proposals"] = valid
+    return data
 
 
 def _extract_proposals_json(collected_text: list[str]) -> dict:
@@ -294,9 +101,11 @@ def _extract_proposals_json(collected_text: list[str]) -> dict:
         try:
             data = json.loads(text)
             if isinstance(data, dict) and "proposals" in data:
-                return data
+                return _validate_proposals(data)
             if isinstance(data, list):
-                return {"device_type": "desktop", "proposals": data}
+                return _validate_proposals(
+                    {"device_type": "desktop", "proposals": data}
+                )
         except json.JSONDecodeError:
             pass
 
@@ -311,7 +120,7 @@ def _extract_proposals_json(collected_text: list[str]) -> dict:
             try:
                 data = json.loads(candidate)
                 if isinstance(data, dict) and "proposals" in data:
-                    return data
+                    return _validate_proposals(data)
             except json.JSONDecodeError:
                 pass
 
@@ -324,7 +133,7 @@ def _extract_proposals_json(collected_text: list[str]) -> dict:
             try:
                 data, _ = decoder.raw_decode(full_text, idx)
                 if isinstance(data, dict) and "proposals" in data:
-                    return data
+                    return _validate_proposals(data)
             except json.JSONDecodeError:
                 pass
 
@@ -335,9 +144,11 @@ def _extract_proposals_json(collected_text: list[str]) -> dict:
             try:
                 data = json.loads(m.group(1).strip())
                 if isinstance(data, dict) and "proposals" in data:
-                    return data
+                    return _validate_proposals(data)
                 if isinstance(data, list):
-                    return {"device_type": "desktop", "proposals": data}
+                    return _validate_proposals(
+                        {"device_type": "desktop", "proposals": data}
+                    )
             except json.JSONDecodeError:
                 continue
 
@@ -356,98 +167,24 @@ async def generate_proposals(
 
     Returns a dict with "device_type" and "proposals" keys.
     """
-    prompt = f"""You are a UI/UX design expert. Analyze this web application and generate {num_proposals} design proposals.
-
-## User's Request
-{instruction}
-
-## Analysis Steps (use Read, Glob, Grep tools)
-
-1. Read package.json to identify the framework (React, Vue, Angular, Next.js, etc.)
-2. Find the files most relevant to the user's request:
-   - Glob for component files matching keywords from the request
-   - Read the main layout/page components and their CSS/styles
-3. Determine device_type:
-   - "mobile" if package.json has react-native, @capacitor, @ionic, or expo
-   - "desktop" otherwise
-
-Spend no more than 10 tool calls on analysis. Focus on files directly related to the user's request.
-
-## Proposal Requirements
-
-Each proposal MUST take a fundamentally different design approach. Differentiate by:
-- **Layout strategy** (e.g., grid vs. flexbox vs. cards vs. list)
-- **Visual hierarchy** (e.g., hero-focused vs. content-dense vs. minimalist)
-- **Interaction pattern** (e.g., inline editing vs. modal vs. accordion)
-
-Do NOT differentiate by only changing colors, fonts, or spacing.
-
-Each proposal must be implementable in under 40 tool calls. Do not propose changes that require:
-- New npm packages or dependencies
-- Backend/API changes
-- More than 5 files modified
-
-## Output
-
-Your final message must be ONLY a JSON object. No markdown, no explanation, no code blocks.
-
-{{
-  "device_type": "desktop",
-  "proposals": [
-    {{
-      "title": "Short title (max 50 chars)",
-      "concept": "2-3 sentences: what is different about this approach and why it improves UX",
-      "plan": [
-        "Read src/components/Header.tsx to understand current structure",
-        "Edit src/components/Header.tsx: change layout from horizontal nav to sidebar nav",
-        "Edit src/styles/header.css: add sidebar positioning and animation styles"
-      ],
-      "files": [{{"path": "src/components/Header.tsx", "reason": "Main component to restructure"}}],
-      "complexity": "low"
-    }}
-  ]
-}}
-
-Rules for the "plan" field:
-- Each step must name a specific file path
-- Each step must describe the specific change (not "update styles" but "add flexbox grid with 3 columns")
-- Steps must be in execution order
-
-Output ONLY the JSON. This is critical for automated parsing.
-"""
+    prompt = build_analyze_prompt(instruction, num_proposals)
 
     collected_text = []
-    current_tool = None
-    tool_input_chunks = ""
 
     async for msg in query(
         prompt=prompt,
         options=ClaudeAgentOptions(
+            system_prompt=SYSTEM_PROMPT,
             allowed_tools=["Read", "Glob", "Grep"],
             cwd=repo_dir,
             max_turns=20,
-            max_budget_usd=1.5,
+            max_budget_usd=float(os.environ.get("ANALYZE_MAX_BUDGET_USD", "1.5")),
             include_partial_messages=True,
+            thinking={"type": "adaptive"},
         ),
     ):
         if isinstance(msg, StreamEvent):
-            event = msg.event
-            etype = event.get("type")
-            if etype == "content_block_start":
-                content_block = event.get("content_block", {})
-                if content_block.get("type") == "tool_use":
-                    current_tool = content_block.get("name")
-                    tool_input_chunks = ""
-            elif etype == "content_block_delta":
-                delta = event.get("delta", {})
-                if delta.get("type") == "input_json_delta":
-                    tool_input_chunks += delta.get("partial_json", "")
-            elif etype == "content_block_stop":
-                if current_tool and tool_input_chunks:
-                    _emit_tool_detail("analyzing", current_tool, tool_input_chunks)
-                current_tool = None
-                tool_input_chunks = ""
-            continue
+            continue  # Skip streaming events; logs emitted from AssistantMessage only
 
         # Collect text content from assistant messages
         if isinstance(msg, AssistantMessage):
@@ -551,9 +288,12 @@ async def main() -> None:
 
     # Step 3: Launch dev server + take before screenshot (with determined device_type)
     before_path = f"{tmp_dir}/before.png"
-    await launch_and_screenshot(
-        repo_dir, before_path, device_type=device_type, instruction=instruction
-    )
+    try:
+        await launch_and_screenshot(
+            repo_dir, before_path, device_type=device_type, instruction=instruction
+        )
+    except Exception as e:
+        emit_log("screenshot", f"Screenshot failed, continuing without it: {e}")
 
     # Step 4: Upload results to S3
     # Upload before screenshot
@@ -567,7 +307,11 @@ async def main() -> None:
         )
 
     # Upload proposals.json (includes device_type)
-    proposals_data = {"device_type": device_type, "proposals": proposals}
+    proposals_data = {
+        "device_type": device_type,
+        "instruction": instruction,
+        "proposals": proposals,
+    }
     s3_upload_text(
         s3,
         bucket,

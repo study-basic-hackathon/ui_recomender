@@ -12,8 +12,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-import boto3
-from botocore.config import Config
 from claude_agent_sdk import (
     ClaudeAgentOptions,
     ClaudeSDKClient,
@@ -23,206 +21,69 @@ from claude_agent_sdk import (
     ToolUseBlock,
 )
 from claude_agent_sdk.types import StreamEvent
-
-PLAYWRIGHT_MCP_SERVERS = {
-    "playwright": {
-        "command": "npx",
-        "args": [
-            "@playwright/mcp@0.0.68",
-            "--headless",
-            "--browser",
-            "chromium",
-            "--viewport-size",
-            "1280x800",
-        ],
-    },
-    "playwright_mobile": {
-        "command": "npx",
-        "args": [
-            "@playwright/mcp@0.0.68",
-            "--headless",
-            "--browser",
-            "chromium",
-            "--device",
-            "iPhone 15",
-        ],
-    },
-}
-
-PLAYWRIGHT_MCP_TOOLS = [
-    "mcp__playwright__browser_navigate",
-    "mcp__playwright__browser_snapshot",
-    "mcp__playwright__browser_take_screenshot",
-    "mcp__playwright__browser_wait_for",
-    "mcp__playwright__browser_evaluate",
-    "mcp__playwright__browser_console_messages",
-    "mcp__playwright_mobile__browser_navigate",
-    "mcp__playwright_mobile__browser_snapshot",
-    "mcp__playwright_mobile__browser_take_screenshot",
-    "mcp__playwright_mobile__browser_wait_for",
-    "mcp__playwright_mobile__browser_evaluate",
-    "mcp__playwright_mobile__browser_console_messages",
-]
+from prompts import LAUNCH_DEV_SERVER_PROMPT, build_screenshot_prompt, build_implement_prompt, build_fix_prompt, SYSTEM_PROMPT, READONLY_SYSTEM_PROMPT
+from worker_common import (
+    emit_log,
+    _emit_tool_detail,
+    process_messages,
+    get_s3_client,
+    s3_download,
+    s3_upload_file,
+    s3_upload_text,
+    PLAYWRIGHT_MCP_SERVERS,
+    PLAYWRIGHT_MCP_TOOLS,
+)
 
 
-def emit_log(phase: str, message: str, detail: str | None = None) -> None:
-    entry = {
-        "phase": phase,
-        "message": message,
-    }
-    if detail:
-        entry["detail"] = detail
-    print(f"@@LOG@@{json.dumps(entry, ensure_ascii=False)}", flush=True)
-
-
-def _emit_tool_detail(phase: str, tool_name: str, raw_input: str) -> None:
-    """Parse tool input JSON and emit a human-readable log line."""
-    try:
-        params = json.loads(raw_input)
-    except json.JSONDecodeError:
-        return
-
-    if tool_name == "Read":
-        path = params.get("file_path", "?").replace("/workspace/repo/", "")
-        emit_log(phase, f"Reading: {path}")
-    elif tool_name in ("Write", "Edit"):
-        path = params.get("file_path", "?").replace("/workspace/repo/", "")
-        emit_log(phase, f"Editing: {path}")
-    elif tool_name == "Bash":
-        cmd = (
-            params.get("command", "?")
-            .replace("/workspace/repo/", "")
-            .replace("/workspace/repo", ".")
-        )
-        emit_log(phase, f"Running: {cmd[:100]}")
-
-
-def get_s3_client():
-    kwargs = {
-        "service_name": "s3",
-        "region_name": os.environ.get("S3_REGION", "us-east-1"),
-        "config": Config(signature_version="s3v4"),
-    }
-    endpoint = os.environ.get("S3_ENDPOINT_URL")
-    if endpoint:
-        kwargs["endpoint_url"] = endpoint
-        kwargs["aws_access_key_id"] = os.environ.get("S3_ACCESS_KEY", "minioadmin")
-        kwargs["aws_secret_access_key"] = os.environ.get("S3_SECRET_KEY", "minioadmin")
-    return boto3.client(**kwargs)
-
-
-def s3_download(s3, bucket, key, local_path):
-    try:
-        s3.download_file(bucket, key, local_path)
-        return True
-    except Exception as e:
-        print(f"S3 download failed for {key}: {e}", file=sys.stderr)
-        return False
-
-
-def s3_upload_file(
-    s3, bucket, key, local_path, content_type="application/octet-stream"
-):
-    for attempt in range(3):
-        try:
-            s3.upload_file(
-                local_path,
-                bucket,
-                key,
-                ExtraArgs={"ContentType": content_type},
-            )
-            print(f"Uploaded {key}")
-            return
-        except Exception as e:
-            print(
-                f"S3 upload attempt {attempt + 1} failed for {key}: {e}",
-                file=sys.stderr,
-            )
-            if attempt == 2:
-                raise
-
-
-def s3_upload_text(s3, bucket, key, text, content_type="text/plain"):
-    for attempt in range(3):
-        try:
-            s3.put_object(
-                Bucket=bucket,
-                Key=key,
-                Body=text.encode("utf-8"),
-                ContentType=content_type,
-            )
-            print(f"Uploaded {key}")
-            return
-        except Exception as e:
-            print(
-                f"S3 upload attempt {attempt + 1} failed for {key}: {e}",
-                file=sys.stderr,
-            )
-            if attempt == 2:
-                raise
-
-
-async def implement_changes(repo_dir: str, proposal_plan: str) -> None:
+async def implement_changes(
+    repo_dir: str, proposal_plan: str
+) -> None:
     """Use Claude Agent SDK to implement the design proposal."""
-    prompt = f"""Implement the following UI design changes to this web application.
+    # Format proposal_plan for readability (C-2)
+    try:
+        plan_data = (
+            json.loads(proposal_plan)
+            if isinstance(proposal_plan, str)
+            else proposal_plan
+        )
+        formatted_plan = (
+            f"""User Request: {plan_data.get("instruction", "N/A")}
+Title: {plan_data.get("title", "N/A")}
+Concept: {plan_data.get("concept", "N/A")}
 
-## Design Proposal
-{proposal_plan}
-
-## Implementation Rules
-
-1. BEFORE editing any file, READ it first to understand its current structure and imports.
-2. Make changes file by file in the order specified in the plan.
-3. Preserve all existing functionality -- do not remove event handlers, routing, or data fetching unless the plan explicitly says to.
-4. Match the existing code style:
-   - Same indentation (tabs vs spaces)
-   - Same quote style (single vs double)
-   - Same component patterns (hooks vs classes, styled-components vs CSS modules vs Tailwind)
-5. For CSS changes, use the same styling approach already in the project.
-6. Do NOT add new npm dependencies. Work with what is already installed.
-7. Do NOT leave TODO comments, placeholder text, or commented-out code.
-
-## Verification
-
-After all edits are complete:
-1. Run the project's lint/typecheck command if one exists (check package.json scripts for "lint", "typecheck", or "check")
-2. If there are errors, fix them before finishing
-3. If no lint command exists, re-read each modified file to verify correctness
-
-Complete ALL changes. Partial implementations are not acceptable.
+Steps:
 """
+            + "\n".join(
+                f"  {i + 1}. {step}" for i, step in enumerate(plan_data.get("plan", []))
+            )
+            + """
 
-    current_tool = None
-    tool_input_chunks = ""
+Target files:
+"""
+            + "\n".join(
+                f"  - {f['path']}: {f.get('reason', '')}"
+                for f in plan_data.get("files", [])
+            )
+        )
+    except (json.JSONDecodeError, AttributeError, TypeError):
+        formatted_plan = str(proposal_plan)
+
+    prompt_text = build_implement_prompt(formatted_plan)
 
     async for msg in query(
-        prompt=prompt,
+        prompt=prompt_text,
         options=ClaudeAgentOptions(
+            system_prompt=SYSTEM_PROMPT,
             allowed_tools=["Read", "Write", "Edit", "Bash", "Glob", "Grep"],
             cwd=repo_dir,
             max_turns=40,
-            max_budget_usd=3.0,
+            max_budget_usd=float(os.environ.get("IMPLEMENT_MAX_BUDGET_USD", "3.0")),
             include_partial_messages=True,
+            thinking={"type": "adaptive"},
         ),
     ):
         if isinstance(msg, StreamEvent):
-            event = msg.event
-            etype = event.get("type")
-            if etype == "content_block_start":
-                content_block = event.get("content_block", {})
-                if content_block.get("type") == "tool_use":
-                    current_tool = content_block.get("name")
-                    tool_input_chunks = ""
-            elif etype == "content_block_delta":
-                delta = event.get("delta", {})
-                if delta.get("type") == "input_json_delta":
-                    tool_input_chunks += delta.get("partial_json", "")
-            elif etype == "content_block_stop":
-                if current_tool and tool_input_chunks:
-                    _emit_tool_detail("implementing", current_tool, tool_input_chunks)
-                current_tool = None
-                tool_input_chunks = ""
-            continue
+            continue  # Skip streaming events; logs emitted from AssistantMessage only
 
         if isinstance(msg, AssistantMessage):
             for block in msg.content:
@@ -237,42 +98,6 @@ Complete ALL changes. Partial implementations are not acceptable.
                     _emit_tool_detail(
                         "implementing", block.name, json.dumps(block.input)
                     )
-
-
-async def _process_messages(client: ClaudeSDKClient, phase: str) -> None:
-    """Process messages from ClaudeSDKClient, emitting logs for a given phase."""
-    current_tool = None
-    tool_input_chunks = ""
-
-    async for msg in client.receive_response():
-        if isinstance(msg, StreamEvent):
-            event = msg.event
-            etype = event.get("type")
-            if etype == "content_block_start":
-                content_block = event.get("content_block", {})
-                if content_block.get("type") == "tool_use":
-                    current_tool = content_block.get("name")
-                    tool_input_chunks = ""
-            elif etype == "content_block_delta":
-                delta = event.get("delta", {})
-                if delta.get("type") == "input_json_delta":
-                    tool_input_chunks += delta.get("partial_json", "")
-            elif etype == "content_block_stop":
-                if current_tool and tool_input_chunks:
-                    _emit_tool_detail(phase, current_tool, tool_input_chunks)
-                current_tool = None
-                tool_input_chunks = ""
-            continue
-
-        if isinstance(msg, AssistantMessage):
-            for block in msg.content:
-                if isinstance(block, TextBlock):
-                    text = block.text.strip()
-                    if text.startswith("Browser") or text.startswith("Searching"):
-                        continue
-                    emit_log(phase, f"Thinking: {text[:200]}", detail=block.text)
-                elif isinstance(block, ToolUseBlock):
-                    _emit_tool_detail(phase, block.name, json.dumps(block.input))
 
 
 async def kill_dev_servers(repo_dir: str) -> None:
@@ -298,6 +123,7 @@ async def fix_with_claude(
 ) -> None:
     """Use Claude to diagnose and fix the dev server launch failure."""
     options = ClaudeAgentOptions(
+        system_prompt=SYSTEM_PROMPT,
         allowed_tools=["Read", "Write", "Edit", "Bash", "Glob", "Grep"],
         # Browser tools removed: server is down so browser cannot connect, wasting turns
         mcp_servers=PLAYWRIGHT_MCP_SERVERS,
@@ -308,39 +134,8 @@ async def fix_with_claude(
     )
 
     async with ClaudeSDKClient(options=options) as client:
-        await client.query(f"""The dev server failed to start. Diagnose and fix the issue.
-
-## Error Output
-```
-{error_message}
-```
-
-## Diagnostic Steps (in order)
-
-1. Check what processes are running: `ps aux | grep -E "node|vite|next|python|uvicorn"`
-2. Check for port conflicts: `lsof -i :3000 -i :5173 -i :8000 2>/dev/null`
-3. If a process is running but erroring, check its log output
-4. Read the relevant source files mentioned in the error to identify root cause
-5. Fix the code with minimal, targeted changes
-
-## Common Fixes
-- Import errors: fix the import path or add missing export
-- Syntax errors: fix the syntax in the indicated file and line
-- Missing dependencies: run `npm install` (do NOT add new packages)
-- Port conflict: kill the conflicting process with `kill <pid>`
-- Missing .env variables: create/update .env with required values
-- TypeScript errors: fix type issues or add appropriate type assertions
-- Backend not available: if frontend requires a backend that cannot start, mock the API calls or set API URL to empty string
-
-## After Fixing
-1. Kill any broken server processes: `pkill -f "node|vite" 2>/dev/null; sleep 1`
-2. Restart the dev server: `npm run dev &`
-3. Wait for it: `for i in $(seq 1 15); do curl -s http://localhost:5173 > /dev/null && break; sleep 2; done`
-4. Confirm: `curl -s http://localhost:5173 | head -3`
-
-Make only the minimum changes needed. Do NOT refactor or restructure code.
-""")
-        await _process_messages(client, "implementing")
+        await client.query(build_fix_prompt(error_message))
+        await process_messages(client,"implementing")
 
 
 async def launch_and_screenshot(
@@ -355,6 +150,7 @@ async def launch_and_screenshot(
     two query() calls so the agent remembers the dev server URL.
     """
     options = ClaudeAgentOptions(
+        system_prompt=READONLY_SYSTEM_PROMPT,
         allowed_tools=["Read", "Bash", "Glob", "Grep"] + PLAYWRIGHT_MCP_TOOLS,
         mcp_servers=PLAYWRIGHT_MCP_SERVERS,
         cwd=repo_dir,
@@ -366,56 +162,14 @@ async def launch_and_screenshot(
     async with ClaudeSDKClient(options=options) as client:
         # Phase 1: install deps + start dev server
         emit_log("launching", "Launching: project")
-        await client.query("""Launch the dev server for this web application.
-
-## CRITICAL RULES
-- Do NOT run `npx playwright install` -- Playwright is pre-installed.
-- Do NOT install global npm packages.
-- Do NOT run docker-compose -- Docker is not available in this environment.
-
-## Steps
-
-1. Read package.json to understand the project structure and scripts.
-2. If .env.example exists, copy it to .env. Set API URLs to http://localhost:8000.
-3. Run `npm install` in the project root (or frontend directory if monorepo).
-4. If the project has a backend (check for /server, /backend, /api directories):
-   - For Node.js: `cd <backend-dir> && npm install && npm run dev &`
-   - For Python: `cd <backend-dir> && pip install -r requirements.txt && python -m uvicorn main:app --port 8000 &` (or similar)
-   - If backend needs PostgreSQL/Redis/Docker, skip it and proceed with frontend only.
-5. Start the frontend: `npm run dev &`
-6. Poll until ready: `for i in $(seq 1 30); do curl -s http://localhost:5173 > /dev/null && break; sleep 2; done`
-   (Adjust the port based on the framework: Vite=5173, Next.js=3000, CRA=3000, Angular=4200)
-7. Confirm with `curl -s http://localhost:<port> | head -5`
-
-After the server is running, state the URL (e.g., "Dev server is running at http://localhost:5173").
-""")
-        await _process_messages(client, "launching")
+        await client.query(LAUNCH_DEV_SERVER_PROMPT)
+        await process_messages(client,"launching")
 
         # Phase 2: take screenshot (same session, so dev server URL is remembered)
         emit_log("screenshot", "Taking: after screenshot")
         device = "playwright_mobile" if device_type == "mobile" else "playwright"
-
-        instruction_block = ""
-        if instruction:
-            instruction_block = f"""
-The user requested: \"\"\"{instruction}\"\"\"
-Navigate to the page most relevant to this request, not just the root URL.
-If the target content is below the fold, scroll it into view before taking the screenshot.
-"""
-
-        await client.query(f"""Take a screenshot of the running application.
-{instruction_block}
-Steps:
-1. Use mcp__{device}__browser_navigate to open the dev server URL from the previous step
-2. Use mcp__{device}__browser_wait_for with text that should appear on the loaded page (e.g., a heading, nav item, or button label)
-3. Use mcp__{device}__browser_snapshot to verify the page rendered correctly (not a blank page or error)
-4. If the page shows a loading spinner or error, wait 5 seconds and retry the snapshot
-5. If you need to scroll to the target area, use mcp__{device}__browser_evaluate with: `document.querySelector('<selector>').scrollIntoView({{behavior: 'smooth', block: 'center'}})`
-6. Use mcp__{device}__browser_take_screenshot to save to {screenshot_output}
-
-IMPORTANT: Do NOT use fullPage option. Capture only the visible viewport.
-""")
-        await _process_messages(client, "screenshot")
+        await client.query(build_screenshot_prompt(device, screenshot_output, instruction))
+        await process_messages(client,"screenshot")
 
     # Verify screenshot was actually created
     if not Path(screenshot_output).exists():
@@ -453,7 +207,12 @@ async def main() -> None:
         raw = Path(local_plan).read_text()
         try:
             plan_data = json.loads(raw)
-            proposal_plan = plan_data.get("plan", raw)
+            # Pass the full plan object (title, concept, plan, files) to implement_changes
+            proposal_plan = {
+                k: v
+                for k, v in plan_data.items()
+                if k not in ("device_type", "instruction")
+            }
             device_type = plan_data.get("device_type", "desktop")
             instruction = plan_data.get("instruction", "")
             if isinstance(device_type, str):
@@ -542,8 +301,12 @@ async def main() -> None:
 
     screenshot_path = f"{tmp_dir}/after.png"
     emit_log("implementing", "Implementing: design proposal")
+    proposal_plan_str = (
+        json.dumps(proposal_plan) if isinstance(proposal_plan, dict) else proposal_plan
+    )
+
     try:
-        await implement_changes(repo_dir, proposal_plan)
+        await implement_changes(repo_dir, proposal_plan_str)
     except Exception as e:
         emit_log("implementing", f"Implementation interrupted: {e}", detail=str(e))
 
@@ -586,8 +349,12 @@ async def main() -> None:
     # Step 4: Generate cumulative patch (squash everything since base_branch)
     # Parse proposal plan to get title for commit message
     try:
-        plan_data = json.loads(proposal_plan)
-        commit_title = plan_data.get("title", f"variant-{proposal_index}")
+        _plan_data = (
+            json.loads(proposal_plan)
+            if isinstance(proposal_plan, str)
+            else proposal_plan
+        )
+        commit_title = _plan_data.get("title", f"variant-{proposal_index}")
     except (json.JSONDecodeError, AttributeError):
         commit_title = f"variant-{proposal_index}"
 
@@ -599,22 +366,39 @@ async def main() -> None:
         cwd=repo_dir,
         check=True,
     )
-    subprocess.run(
-        ["git", "commit", "-m", f"feat: {commit_title}"],
-        cwd=repo_dir,
-        check=True,
+
+    # Check if there are changes to commit
+    status_result = subprocess.run(
+        ["git", "status", "--porcelain"], cwd=repo_dir, capture_output=True, text=True
     )
-    # Generate format-patch (cumulative: base_branch → HEAD)
-    patch_result = subprocess.run(
-        ["git", "format-patch", "-1", "HEAD", "--stdout"],
-        capture_output=True,
-        text=True,
-        cwd=repo_dir,
-        check=True,
-    )
-    local_diff = f"{tmp_dir}/changes.diff"
-    with open(local_diff, "w") as f:
-        f.write(patch_result.stdout)
+    if not status_result.stdout.strip():
+        emit_log(
+            "implementing",
+            "WARNING: No changes to commit. Implementation may have failed.",
+        )
+        # Create an empty patch and skip upload
+        local_diff = f"{tmp_dir}/changes.diff"
+        with open(local_diff, "w") as f:
+            f.write("")
+        patch_result_stdout = ""
+    else:
+        subprocess.run(
+            ["git", "commit", "-m", f"feat: {commit_title}"],
+            cwd=repo_dir,
+            check=True,
+        )
+        # Generate format-patch (cumulative: base_branch -> HEAD)
+        patch_result = subprocess.run(
+            ["git", "format-patch", "-1", "HEAD", "--stdout"],
+            capture_output=True,
+            text=True,
+            cwd=repo_dir,
+            check=True,
+        )
+        local_diff = f"{tmp_dir}/changes.diff"
+        with open(local_diff, "w") as f:
+            f.write(patch_result.stdout)
+        patch_result_stdout = patch_result.stdout
 
     # Step 5: Upload results to S3
     # Upload after screenshot
@@ -627,12 +411,12 @@ async def main() -> None:
             content_type="image/png",
         )
 
-    # Upload cumulative patch
+    # Upload cumulative patch (upload even if empty so downstream can detect no-changes)
     s3_upload_text(
         s3,
         bucket,
         f"{s3_prefix}/changes.diff",
-        patch_result.stdout,
+        patch_result_stdout,
         content_type="text/plain",
     )
 

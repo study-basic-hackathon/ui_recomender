@@ -18,14 +18,13 @@ async def create_k8s_job(state: SessionImplementationState) -> dict:
 
     # Write proposal plan to S3 for the worker to read (includes device_type)
     plan_key = s3.plan_key(state["session_id"], state["iteration_index"], state["proposal_index"])
-    plan_with_device = _json.dumps(
-        {
-            "plan": state["proposal_plan"],
-            "device_type": state.get("device_type", "desktop"),
-            "instruction": state.get("instruction", ""),
-        },
-        ensure_ascii=False,
-    )
+    raw_plan = state["proposal_plan"]
+    plan_obj = _json.loads(raw_plan) if isinstance(raw_plan, str) else raw_plan
+    if not isinstance(plan_obj, dict):
+        plan_obj = {"plan": plan_obj}
+    plan_obj["device_type"] = state.get("device_type", "desktop")
+    plan_obj["instruction"] = state.get("instruction", "")
+    plan_with_device = _json.dumps(plan_obj, ensure_ascii=False)
     s3.upload_text(plan_key, plan_with_device)
 
     job_name = k8s.create_session_implementation_job(

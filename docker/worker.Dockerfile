@@ -68,6 +68,8 @@ RUN git config --global user.name "Claude Code" && \
 
 # Copy worker scripts
 COPY docker/worker-entrypoint.sh /usr/local/bin/worker-entrypoint.sh
+COPY docker/prompts.py /usr/local/bin/prompts.py
+COPY docker/worker_common.py /usr/local/bin/worker_common.py
 COPY docker/worker-analyze.py /usr/local/bin/worker-analyze.py
 COPY docker/worker-implement.py /usr/local/bin/worker-implement.py
 COPY docker/worker-createpr.py /usr/local/bin/worker-createpr.py

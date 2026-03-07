@@ -13,97 +13,30 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-import boto3
-from botocore.config import Config
 from claude_agent_sdk import ClaudeAgentOptions, query, AssistantMessage, TextBlock
-
-
-def get_s3_client():
-    kwargs = {
-        "service_name": "s3",
-        "region_name": os.environ.get("S3_REGION", "us-east-1"),
-        "config": Config(signature_version="s3v4"),
-    }
-    endpoint = os.environ.get("S3_ENDPOINT_URL")
-    if endpoint:
-        kwargs["endpoint_url"] = endpoint
-        kwargs["aws_access_key_id"] = os.environ.get("S3_ACCESS_KEY", "minioadmin")
-        kwargs["aws_secret_access_key"] = os.environ.get("S3_SECRET_KEY", "minioadmin")
-    return boto3.client(**kwargs)
-
-
-def s3_download(s3, bucket, key, local_path):
-    try:
-        s3.download_file(bucket, key, local_path)
-        return True
-    except Exception as e:
-        print(f"S3 download failed for {key}: {e}", file=sys.stderr)
-        return False
-
-
-def s3_upload_text(s3, bucket, key, text):
-    for attempt in range(3):
-        try:
-            s3.put_object(Bucket=bucket, Key=key, Body=text.encode("utf-8"), ContentType="text/plain")
-            print(f"Uploaded {key}")
-            return
-        except Exception as e:
-            print(f"S3 upload attempt {attempt + 1} failed for {key}: {e}", file=sys.stderr)
-            if attempt == 2:
-                raise
+from prompts import build_pr_prompt, SYSTEM_PROMPT
+from worker_common import get_s3_client, s3_download, s3_upload_text
 
 
 async def push_and_create_pr(
-    repo_dir: str, branch_name: str, base_branch: str, diff_summary: str
+    repo_dir: str,
+    branch_name: str,
+    base_branch: str,
+    diff_summary: str,
+    plan_context: str = "",
 ) -> str:
     """Use Claude Agent SDK to push the branch and create a PR."""
-    prompt = f"""Create a GitHub Pull Request for UI changes.
-
-Branch: "{branch_name}" (target: "{base_branch}")
-
-## Changes Applied
-```diff
-{diff_summary}
-```
-
-## Steps
-
-1. Push the branch:
-   `git push origin {branch_name}`
-
-2. Create the PR:
-   ```
-   gh pr create --base {base_branch} --head {branch_name} \\
-     --title "<type>: <concise description>" \\
-     --body "<body>"
-   ```
-
-   Title format: "feat: <what changed>" or "style: <what changed>" (under 70 chars)
-
-   Body format (use this exact markdown structure):
-   ```
-   ## What Changed
-   - Bullet point summary of each visual/behavioral change
-
-   ## Files Modified
-   - `path/to/file` - brief description of change
-
-   ## Review Notes
-   - What the reviewer should look for when checking this PR
-   ```
-
-3. Output the PR URL on its own line:
-   PR_URL: https://github.com/...
-
-IMPORTANT: The PR_URL: line is required for automated extraction. Output it exactly as shown.
-"""
+    prompt = build_pr_prompt(branch_name, base_branch, diff_summary, plan_context)
     collected_text: list[str] = []
 
     async for msg in query(
         prompt=prompt,
         options=ClaudeAgentOptions(
-            allowed_tools=["Read", "Bash", "Glob", "Grep"],
-            cwd=repo_dir, max_turns=15, max_budget_usd=1.0,
+            system_prompt=SYSTEM_PROMPT,
+            allowed_tools=["Bash"],
+            cwd=repo_dir,
+            max_turns=15,
+            max_budget_usd=1.0,
         ),
     ):
         if isinstance(msg, AssistantMessage):
@@ -147,6 +80,28 @@ async def main() -> None:
         print(f"Error: Patch not found at s3://{bucket}/{patch_key}", file=sys.stderr)
         sys.exit(1)
     diff_content = Path(local_patch).read_text()
+    if not diff_content.strip():
+        print("Patch is empty, no changes to push. Skipping PR creation.")
+        sys.exit(0)
+
+    # Step 1.5: Download plan.json for proposal context
+    plan_key = (
+        f"sessions/{session_id}/iterations/{iteration_index}"
+        f"/proposals/{proposal_index}/plan.json"
+    )
+    local_plan = f"{tmp_dir}/plan.json"
+    plan_context = ""
+    if s3_download(s3, bucket, plan_key, local_plan):
+        try:
+            plan_data = json.loads(Path(local_plan).read_text())
+            plan_context = f"""
+## Proposal Context
+User Request: {plan_data.get('instruction', 'N/A')}
+Title: {plan_data.get('title', 'N/A')}
+Concept: {plan_data.get('concept', 'N/A')}
+"""
+        except (json.JSONDecodeError, KeyError):
+            pass
 
     # Step 2: Clone repository (with token auth for push)
     repo_dir = "/workspace/repo"
@@ -171,25 +126,50 @@ async def main() -> None:
     # Step 4: Apply the patch
     result = subprocess.run(
         ["git", "am", "--3way", local_patch],
-        cwd=repo_dir, capture_output=True, text=True,
+        cwd=repo_dir,
+        capture_output=True,
+        text=True,
     )
     if result.returncode != 0:
         print(f"git am failed: {result.stderr}", file=sys.stderr)
         print("Falling back to git apply...")
         subprocess.run(["git", "am", "--abort"], cwd=repo_dir, capture_output=True)
-        subprocess.run(["git", "apply", "--3way", local_patch], cwd=repo_dir, check=True)
+        subprocess.run(
+            ["git", "apply", "--3way", local_patch], cwd=repo_dir, check=True
+        )
         subprocess.run(["git", "add", "-A"], cwd=repo_dir, check=True)
         subprocess.run(
-            ["git", "commit", "-m", f"feat: apply UI changes from session {session_id[:8]}"],
-            cwd=repo_dir, check=True,
+            [
+                "git",
+                "commit",
+                "-m",
+                f"feat: apply UI changes from session {session_id[:8]}",
+            ],
+            cwd=repo_dir,
+            check=True,
         )
 
     # Step 5: Unshallow for push
     subprocess.run(["git", "fetch", "--unshallow"], cwd=repo_dir, capture_output=True)
 
     # Step 6: Push and create PR via Agent SDK
-    diff_summary = diff_content[:10000]
-    pr_url = await push_and_create_pr(repo_dir, branch_name, branch, diff_summary)
+    # Truncate diff at line boundaries to avoid cutting mid-hunk
+    diff_lines = diff_content.splitlines()
+    summary_lines = []
+    char_count = 0
+    truncated = False
+    for line in diff_lines:
+        if char_count + len(line) > 10000:
+            truncated = True
+            break
+        summary_lines.append(line)
+        char_count += len(line) + 1
+    diff_summary = "\n".join(summary_lines)
+    if truncated:
+        diff_summary += "\n\n... (diff truncated, showing first ~10000 chars)"
+    pr_url = await push_and_create_pr(
+        repo_dir, branch_name, branch, diff_summary, plan_context=plan_context
+    )
 
     if pr_url:
         print(f"PR created: {pr_url}")

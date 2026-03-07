@@ -14,17 +14,38 @@ from pathlib import Path
 
 import boto3
 from botocore.config import Config
-from claude_agent_sdk import ClaudeAgentOptions, ClaudeSDKClient, query, AssistantMessage, TextBlock, ToolUseBlock
+from claude_agent_sdk import (
+    ClaudeAgentOptions,
+    ClaudeSDKClient,
+    query,
+    AssistantMessage,
+    TextBlock,
+    ToolUseBlock,
+)
 from claude_agent_sdk.types import StreamEvent
 
 PLAYWRIGHT_MCP_SERVERS = {
     "playwright": {
         "command": "npx",
-        "args": ["@playwright/mcp@0.0.68", "--headless", "--browser", "chromium", "--viewport-size", "1280x800"],
+        "args": [
+            "@playwright/mcp@0.0.68",
+            "--headless",
+            "--browser",
+            "chromium",
+            "--viewport-size",
+            "1280x800",
+        ],
     },
     "playwright_mobile": {
         "command": "npx",
-        "args": ["@playwright/mcp@0.0.68", "--headless", "--browser", "chromium", "--device", "iPhone 15"],
+        "args": [
+            "@playwright/mcp@0.0.68",
+            "--headless",
+            "--browser",
+            "chromium",
+            "--device",
+            "iPhone 15",
+        ],
     },
 }
 
@@ -68,7 +89,11 @@ def _emit_tool_detail(phase: str, tool_name: str, raw_input: str) -> None:
         path = params.get("file_path", "?").replace("/workspace/repo/", "")
         emit_log(phase, f"Editing: {path}")
     elif tool_name == "Bash":
-        cmd = params.get("command", "?").replace("/workspace/repo/", "").replace("/workspace/repo", ".")
+        cmd = (
+            params.get("command", "?")
+            .replace("/workspace/repo/", "")
+            .replace("/workspace/repo", ".")
+        )
         emit_log(phase, f"Running: {cmd[:100]}")
 
 
@@ -95,17 +120,24 @@ def s3_download(s3, bucket, key, local_path):
         return False
 
 
-def s3_upload_file(s3, bucket, key, local_path, content_type="application/octet-stream"):
+def s3_upload_file(
+    s3, bucket, key, local_path, content_type="application/octet-stream"
+):
     for attempt in range(3):
         try:
             s3.upload_file(
-                local_path, bucket, key,
+                local_path,
+                bucket,
+                key,
                 ExtraArgs={"ContentType": content_type},
             )
             print(f"Uploaded {key}")
             return
         except Exception as e:
-            print(f"S3 upload attempt {attempt + 1} failed for {key}: {e}", file=sys.stderr)
+            print(
+                f"S3 upload attempt {attempt + 1} failed for {key}: {e}",
+                file=sys.stderr,
+            )
             if attempt == 2:
                 raise
 
@@ -114,13 +146,18 @@ def s3_upload_text(s3, bucket, key, text, content_type="text/plain"):
     for attempt in range(3):
         try:
             s3.put_object(
-                Bucket=bucket, Key=key,
-                Body=text.encode("utf-8"), ContentType=content_type,
+                Bucket=bucket,
+                Key=key,
+                Body=text.encode("utf-8"),
+                ContentType=content_type,
             )
             print(f"Uploaded {key}")
             return
         except Exception as e:
-            print(f"S3 upload attempt {attempt + 1} failed for {key}: {e}", file=sys.stderr)
+            print(
+                f"S3 upload attempt {attempt + 1} failed for {key}: {e}",
+                file=sys.stderr,
+            )
             if attempt == 2:
                 raise
 
@@ -161,7 +198,12 @@ async def _process_messages(client: ClaudeSDKClient, phase: str) -> None:
                     _emit_tool_detail(phase, block.name, json.dumps(block.input))
 
 
-async def launch_and_screenshot(repo_dir: str, screenshot_output: str, device_type: str = "desktop", instruction: str = "") -> None:
+async def launch_and_screenshot(
+    repo_dir: str,
+    screenshot_output: str,
+    device_type: str = "desktop",
+    instruction: str = "",
+) -> None:
     """Launch dev server and take screenshot in a single session.
 
     Uses ClaudeSDKClient to keep the same conversation context across
@@ -287,7 +329,7 @@ def _extract_proposals_json(collected_text: list[str]) -> dict:
                 pass
 
     # Strategy 3: Extract from markdown code blocks in full text
-    for pattern in [r'```json\s*(.*?)```', r'```\s*(.*?)```']:
+    for pattern in [r"```json\s*(.*?)```", r"```\s*(.*?)```"]:
         m = re.search(pattern, full_text, re.DOTALL)
         if m:
             try:
@@ -432,9 +474,9 @@ async def main() -> None:
             f"/proposals/{selected_proposal_index}/changes.diff"
         )
         local_patch = f"{tmp_dir}/parent.diff"
-        emit_log("patching", f"Downloading patch from S3: {patch_key}")
+        emit_log("patching", "Downloading: patch from S3")
         if s3_download(s3, bucket, patch_key, local_patch):
-            emit_log("patching", "Applying cumulative patch")
+            emit_log("patching", "Applying: cumulative patch")
             result = subprocess.run(
                 ["git", "am", "--3way", local_patch],
                 cwd=repo_dir,
@@ -458,7 +500,7 @@ async def main() -> None:
                     cwd=repo_dir,
                     check=True,
                 )
-            emit_log("patching", "Cumulative patch applied successfully")
+            emit_log("patching", "Thinking: cumulative patch applied successfully")
         else:
             print(
                 f"WARNING: Patch not found at s3://{bucket}/{patch_key}",
@@ -479,17 +521,23 @@ async def main() -> None:
         device_type = device_type.lower()
     if device_type not in ("desktop", "mobile"):
         device_type = "desktop"
-    emit_log("analyzing", f"Thinking: Generated {len(proposals)} proposals (device: {device_type})")
+    emit_log(
+        "analyzing",
+        f"Thinking: Generated {len(proposals)} proposals (device: {device_type})",
+    )
 
     # Step 3: Launch dev server + take before screenshot (with determined device_type)
     before_path = f"{tmp_dir}/before.png"
-    await launch_and_screenshot(repo_dir, before_path, device_type=device_type, instruction=instruction)
+    await launch_and_screenshot(
+        repo_dir, before_path, device_type=device_type, instruction=instruction
+    )
 
     # Step 4: Upload results to S3
     # Upload before screenshot
     if Path(before_path).exists():
         s3_upload_file(
-            s3, bucket,
+            s3,
+            bucket,
             f"{s3_prefix}/before.png",
             before_path,
             content_type="image/png",
@@ -498,7 +546,8 @@ async def main() -> None:
     # Upload proposals.json (includes device_type)
     proposals_data = {"device_type": device_type, "proposals": proposals}
     s3_upload_text(
-        s3, bucket,
+        s3,
+        bucket,
         f"{s3_prefix}/proposals.json",
         json.dumps(proposals_data, ensure_ascii=False, indent=2),
         content_type="application/json",

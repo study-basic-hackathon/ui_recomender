@@ -14,17 +14,38 @@ from pathlib import Path
 
 import boto3
 from botocore.config import Config
-from claude_agent_sdk import ClaudeAgentOptions, ClaudeSDKClient, query, AssistantMessage, TextBlock, ToolUseBlock
+from claude_agent_sdk import (
+    ClaudeAgentOptions,
+    ClaudeSDKClient,
+    query,
+    AssistantMessage,
+    TextBlock,
+    ToolUseBlock,
+)
 from claude_agent_sdk.types import StreamEvent
 
 PLAYWRIGHT_MCP_SERVERS = {
     "playwright": {
         "command": "npx",
-        "args": ["@playwright/mcp@0.0.68", "--headless", "--browser", "chromium", "--viewport-size", "1280x800"],
+        "args": [
+            "@playwright/mcp@0.0.68",
+            "--headless",
+            "--browser",
+            "chromium",
+            "--viewport-size",
+            "1280x800",
+        ],
     },
     "playwright_mobile": {
         "command": "npx",
-        "args": ["@playwright/mcp@0.0.68", "--headless", "--browser", "chromium", "--device", "iPhone 15"],
+        "args": [
+            "@playwright/mcp@0.0.68",
+            "--headless",
+            "--browser",
+            "chromium",
+            "--device",
+            "iPhone 15",
+        ],
     },
 }
 
@@ -62,11 +83,17 @@ def _emit_tool_detail(phase: str, tool_name: str, raw_input: str) -> None:
         return
 
     if tool_name == "Read":
-        emit_log(phase, f"Reading: {params.get('file_path', '?')}")
+        path = params.get("file_path", "?").replace("/workspace/repo/", "")
+        emit_log(phase, f"Reading: {path}")
     elif tool_name in ("Write", "Edit"):
-        emit_log(phase, f"Editing: {params.get('file_path', '?')}")
+        path = params.get("file_path", "?").replace("/workspace/repo/", "")
+        emit_log(phase, f"Editing: {path}")
     elif tool_name == "Bash":
-        cmd = params.get("command", "?")
+        cmd = (
+            params.get("command", "?")
+            .replace("/workspace/repo/", "")
+            .replace("/workspace/repo", ".")
+        )
         emit_log(phase, f"Running: {cmd[:100]}")
 
 
@@ -93,17 +120,24 @@ def s3_download(s3, bucket, key, local_path):
         return False
 
 
-def s3_upload_file(s3, bucket, key, local_path, content_type="application/octet-stream"):
+def s3_upload_file(
+    s3, bucket, key, local_path, content_type="application/octet-stream"
+):
     for attempt in range(3):
         try:
             s3.upload_file(
-                local_path, bucket, key,
+                local_path,
+                bucket,
+                key,
                 ExtraArgs={"ContentType": content_type},
             )
             print(f"Uploaded {key}")
             return
         except Exception as e:
-            print(f"S3 upload attempt {attempt + 1} failed for {key}: {e}", file=sys.stderr)
+            print(
+                f"S3 upload attempt {attempt + 1} failed for {key}: {e}",
+                file=sys.stderr,
+            )
             if attempt == 2:
                 raise
 
@@ -112,13 +146,18 @@ def s3_upload_text(s3, bucket, key, text, content_type="text/plain"):
     for attempt in range(3):
         try:
             s3.put_object(
-                Bucket=bucket, Key=key,
-                Body=text.encode("utf-8"), ContentType=content_type,
+                Bucket=bucket,
+                Key=key,
+                Body=text.encode("utf-8"),
+                ContentType=content_type,
             )
             print(f"Uploaded {key}")
             return
         except Exception as e:
-            print(f"S3 upload attempt {attempt + 1} failed for {key}: {e}", file=sys.stderr)
+            print(
+                f"S3 upload attempt {attempt + 1} failed for {key}: {e}",
+                file=sys.stderr,
+            )
             if attempt == 2:
                 raise
 
@@ -154,12 +193,17 @@ async def _process_messages(client: ClaudeSDKClient, phase: str) -> None:
                     text = block.text.strip()
                     if text.startswith("Browser") or text.startswith("Searching"):
                         continue
-                    emit_log(phase, text[:200], detail=block.text)
+                    emit_log(phase, f"Thinking: {text[:200]}", detail=block.text)
                 elif isinstance(block, ToolUseBlock):
                     _emit_tool_detail(phase, block.name, json.dumps(block.input))
 
 
-async def launch_and_screenshot(repo_dir: str, screenshot_output: str, device_type: str = "desktop") -> None:
+async def launch_and_screenshot(
+    repo_dir: str,
+    screenshot_output: str,
+    device_type: str = "desktop",
+    instruction: str = "",
+) -> None:
     """Launch dev server and take screenshot in a single session.
 
     Uses ClaudeSDKClient to keep the same conversation context across
@@ -176,8 +220,8 @@ async def launch_and_screenshot(repo_dir: str, screenshot_output: str, device_ty
 
     async with ClaudeSDKClient(options=options) as client:
         # Phase 1: install deps + start dev server
-        emit_log("launching", "Launching project")
-        await client.query(f"""You need to launch the web application at {repo_dir}.
+        emit_log("launching", "Launching: project")
+        await client.query("""You need to launch the web application.
 
 Follow these steps:
 1. Investigate how to start the dev server (check package.json scripts, README, etc.)
@@ -193,21 +237,37 @@ IMPORTANT:
         await _process_messages(client, "launching")
 
         # Phase 2: take screenshot (same session, so dev server URL is remembered)
-        emit_log("screenshot", "Taking before screenshot")
+        emit_log("screenshot", "Taking: before screenshot")
         device = "playwright_mobile" if device_type == "mobile" else "playwright"
+
+        instruction_block = ""
+        if instruction:
+            instruction_block = f"""
+## User's change request
+\"\"\"{instruction}\"\"\"
+
+Based on this request, you MUST determine which page and area to screenshot:
+1. Read the project's routing configuration (e.g. React Router, Next.js pages, Vue Router) to find the relevant page/route
+2. Navigate to the page that is most relevant to the user's request (NOT necessarily the root `/`)
+3. If the change target is below the fold (e.g. footer, bottom section), use mcp__{device}__browser_evaluate to scroll the element into view before taking the screenshot
+"""
+
         await client.query(f"""Now take a screenshot of the running application.
 
 You already know the dev server URL from the previous step.
 
 Use the **{device}** browser tools (mcp__{device}__*) to take the screenshot.
-
+{instruction_block}
 Steps:
-1. Use mcp__{device}__browser_navigate to open the dev server URL
-2. Use mcp__{device}__browser_wait_for to wait for the page to fully load
-3. Use mcp__{device}__browser_take_screenshot to capture the viewport and save to {screenshot_output}
+1. Read the project's routing configuration to identify the correct page for the user's request
+2. Use mcp__{device}__browser_navigate to open the appropriate page URL
+3. Use mcp__{device}__browser_wait_for to wait for the page to fully load
+4. If the target area is not visible in the viewport, use mcp__{device}__browser_evaluate to scroll it into view
+5. Use mcp__{device}__browser_take_screenshot to capture the viewport and save to {screenshot_output}
 
 IMPORTANT:
 - Do NOT use fullPage. Capture only what the user actually sees in the viewport.
+- Navigate to the page most relevant to the user's request, not just the root URL.
 - If a specific element needs to be visible, use mcp__{device}__browser_evaluate to scrollIntoView first.
 """)
         await _process_messages(client, "screenshot")
@@ -269,7 +329,7 @@ def _extract_proposals_json(collected_text: list[str]) -> dict:
                 pass
 
     # Strategy 3: Extract from markdown code blocks in full text
-    for pattern in [r'```json\s*(.*?)```', r'```\s*(.*?)```']:
+    for pattern in [r"```json\s*(.*?)```", r"```\s*(.*?)```"]:
         m = re.search(pattern, full_text, re.DOTALL)
         if m:
             try:
@@ -373,7 +433,7 @@ Remember: The JSON output is the MOST IMPORTANT part. Even if your analysis is i
                     text = block.text.strip()
                     if text.startswith("Browser") or text.startswith("Searching"):
                         continue
-                    emit_log("analyzing", text[:200], detail=block.text)
+                    emit_log("analyzing", f"Thinking: {text[:200]}", detail=block.text)
                     collected_text.append(block.text)
                 elif isinstance(block, ToolUseBlock):
                     _emit_tool_detail("analyzing", block.name, json.dumps(block.input))
@@ -400,7 +460,7 @@ async def main() -> None:
     s3_prefix = f"sessions/{session_id}/iterations/{iteration_index}"
 
     # Step 1: Clone repository
-    emit_log("cloning", "Cloning repository")
+    emit_log("cloning", "Cloning: repository")
     subprocess.run(
         ["git", "clone", "--depth", "1", "--branch", branch, repo_url, repo_dir],
         check=True,
@@ -414,9 +474,9 @@ async def main() -> None:
             f"/proposals/{selected_proposal_index}/changes.diff"
         )
         local_patch = f"{tmp_dir}/parent.diff"
-        emit_log("patching", f"Downloading patch from S3: {patch_key}")
+        emit_log("patching", "Downloading: patch from S3")
         if s3_download(s3, bucket, patch_key, local_patch):
-            emit_log("patching", "Applying cumulative patch")
+            emit_log("patching", "Applying: cumulative patch")
             result = subprocess.run(
                 ["git", "am", "--3way", local_patch],
                 cwd=repo_dir,
@@ -440,7 +500,7 @@ async def main() -> None:
                     cwd=repo_dir,
                     check=True,
                 )
-            emit_log("patching", "Cumulative patch applied successfully")
+            emit_log("patching", "Thinking: cumulative patch applied successfully")
         else:
             print(
                 f"WARNING: Patch not found at s3://{bucket}/{patch_key}",
@@ -448,7 +508,7 @@ async def main() -> None:
             )
 
     # Step 2: Code analysis + device detection + proposal generation (no browser needed)
-    emit_log("analyzing", "Generating design proposals")
+    emit_log("analyzing", "Thinking: Generating design proposals")
     try:
         result = await generate_proposals(repo_dir, instruction, num_proposals)
     except Exception as e:
@@ -461,19 +521,23 @@ async def main() -> None:
         device_type = device_type.lower()
     if device_type not in ("desktop", "mobile"):
         device_type = "desktop"
-    emit_log("analyzing", f"Generated {len(proposals)} proposals (device: {device_type})")
+    emit_log(
+        "analyzing",
+        f"Thinking: Generated {len(proposals)} proposals (device: {device_type})",
+    )
 
     # Step 3: Launch dev server + take before screenshot (with determined device_type)
     before_path = f"{tmp_dir}/before.png"
-    await launch_and_screenshot(repo_dir, before_path, device_type=device_type)
+    await launch_and_screenshot(
+        repo_dir, before_path, device_type=device_type, instruction=instruction
+    )
 
     # Step 4: Upload results to S3
-    emit_log("uploading", "Uploading results to S3")
-
     # Upload before screenshot
     if Path(before_path).exists():
         s3_upload_file(
-            s3, bucket,
+            s3,
+            bucket,
             f"{s3_prefix}/before.png",
             before_path,
             content_type="image/png",
@@ -482,7 +546,8 @@ async def main() -> None:
     # Upload proposals.json (includes device_type)
     proposals_data = {"device_type": device_type, "proposals": proposals}
     s3_upload_text(
-        s3, bucket,
+        s3,
+        bucket,
         f"{s3_prefix}/proposals.json",
         json.dumps(proposals_data, ensure_ascii=False, indent=2),
         content_type="application/json",

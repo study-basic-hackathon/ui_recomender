@@ -14,17 +14,38 @@ from pathlib import Path
 
 import boto3
 from botocore.config import Config
-from claude_agent_sdk import ClaudeAgentOptions, ClaudeSDKClient, query, AssistantMessage, TextBlock, ToolUseBlock
+from claude_agent_sdk import (
+    ClaudeAgentOptions,
+    ClaudeSDKClient,
+    query,
+    AssistantMessage,
+    TextBlock,
+    ToolUseBlock,
+)
 from claude_agent_sdk.types import StreamEvent
 
 PLAYWRIGHT_MCP_SERVERS = {
     "playwright": {
         "command": "npx",
-        "args": ["@playwright/mcp@0.0.68", "--headless", "--browser", "chromium", "--viewport-size", "1280x800"],
+        "args": [
+            "@playwright/mcp@0.0.68",
+            "--headless",
+            "--browser",
+            "chromium",
+            "--viewport-size",
+            "1280x800",
+        ],
     },
     "playwright_mobile": {
         "command": "npx",
-        "args": ["@playwright/mcp@0.0.68", "--headless", "--browser", "chromium", "--device", "iPhone 15"],
+        "args": [
+            "@playwright/mcp@0.0.68",
+            "--headless",
+            "--browser",
+            "chromium",
+            "--device",
+            "iPhone 15",
+        ],
     },
 }
 
@@ -62,11 +83,17 @@ def _emit_tool_detail(phase: str, tool_name: str, raw_input: str) -> None:
         return
 
     if tool_name == "Read":
-        emit_log(phase, f"Reading: {params.get('file_path', '?')}")
+        path = params.get("file_path", "?").replace("/workspace/repo/", "")
+        emit_log(phase, f"Reading: {path}")
     elif tool_name in ("Write", "Edit"):
-        emit_log(phase, f"Editing: {params.get('file_path', '?')}")
+        path = params.get("file_path", "?").replace("/workspace/repo/", "")
+        emit_log(phase, f"Editing: {path}")
     elif tool_name == "Bash":
-        cmd = params.get("command", "?")
+        cmd = (
+            params.get("command", "?")
+            .replace("/workspace/repo/", "")
+            .replace("/workspace/repo", ".")
+        )
         emit_log(phase, f"Running: {cmd[:100]}")
 
 
@@ -93,17 +120,24 @@ def s3_download(s3, bucket, key, local_path):
         return False
 
 
-def s3_upload_file(s3, bucket, key, local_path, content_type="application/octet-stream"):
+def s3_upload_file(
+    s3, bucket, key, local_path, content_type="application/octet-stream"
+):
     for attempt in range(3):
         try:
             s3.upload_file(
-                local_path, bucket, key,
+                local_path,
+                bucket,
+                key,
                 ExtraArgs={"ContentType": content_type},
             )
             print(f"Uploaded {key}")
             return
         except Exception as e:
-            print(f"S3 upload attempt {attempt + 1} failed for {key}: {e}", file=sys.stderr)
+            print(
+                f"S3 upload attempt {attempt + 1} failed for {key}: {e}",
+                file=sys.stderr,
+            )
             if attempt == 2:
                 raise
 
@@ -112,20 +146,25 @@ def s3_upload_text(s3, bucket, key, text, content_type="text/plain"):
     for attempt in range(3):
         try:
             s3.put_object(
-                Bucket=bucket, Key=key,
-                Body=text.encode("utf-8"), ContentType=content_type,
+                Bucket=bucket,
+                Key=key,
+                Body=text.encode("utf-8"),
+                ContentType=content_type,
             )
             print(f"Uploaded {key}")
             return
         except Exception as e:
-            print(f"S3 upload attempt {attempt + 1} failed for {key}: {e}", file=sys.stderr)
+            print(
+                f"S3 upload attempt {attempt + 1} failed for {key}: {e}",
+                file=sys.stderr,
+            )
             if attempt == 2:
                 raise
 
 
 async def implement_changes(repo_dir: str, proposal_plan: str) -> None:
     """Use Claude Agent SDK to implement the design proposal."""
-    prompt = f"""You are implementing UI changes to a web application located at {repo_dir}.
+    prompt = f"""You are implementing UI changes to a web application.
 
 Here is the specific design proposal to implement:
 
@@ -175,9 +214,13 @@ Here is the specific design proposal to implement:
                     text = block.text.strip()
                     if text.startswith("Browser") or text.startswith("Searching"):
                         continue
-                    emit_log("implementing", text[:200], detail=block.text)
+                    emit_log(
+                        "implementing", f"Thinking: {text[:200]}", detail=block.text
+                    )
                 elif isinstance(block, ToolUseBlock):
-                    _emit_tool_detail("implementing", block.name, json.dumps(block.input))
+                    _emit_tool_detail(
+                        "implementing", block.name, json.dumps(block.input)
+                    )
 
 
 async def _process_messages(client: ClaudeSDKClient, phase: str) -> None:
@@ -211,7 +254,7 @@ async def _process_messages(client: ClaudeSDKClient, phase: str) -> None:
                     text = block.text.strip()
                     if text.startswith("Browser") or text.startswith("Searching"):
                         continue
-                    emit_log(phase, text[:200], detail=block.text)
+                    emit_log(phase, f"Thinking: {text[:200]}", detail=block.text)
                 elif isinstance(block, ToolUseBlock):
                     _emit_tool_detail(phase, block.name, json.dumps(block.input))
 
@@ -227,10 +270,13 @@ async def kill_dev_servers(repo_dir: str) -> None:
     await asyncio.sleep(2)
 
 
-async def fix_with_claude(repo_dir: str, error_message: str, device_type: str = "desktop") -> None:
+async def fix_with_claude(
+    repo_dir: str, error_message: str, device_type: str = "desktop"
+) -> None:
     """Use Claude to diagnose and fix the dev server launch failure."""
     options = ClaudeAgentOptions(
-        allowed_tools=["Read", "Write", "Edit", "Bash", "Glob", "Grep"] + PLAYWRIGHT_MCP_TOOLS,
+        allowed_tools=["Read", "Write", "Edit", "Bash", "Glob", "Grep"]
+        + PLAYWRIGHT_MCP_TOOLS,
         mcp_servers=PLAYWRIGHT_MCP_SERVERS,
         cwd=repo_dir,
         max_turns=20,
@@ -240,7 +286,7 @@ async def fix_with_claude(repo_dir: str, error_message: str, device_type: str = 
 
     device = "playwright_mobile" if device_type == "mobile" else "playwright"
     async with ClaudeSDKClient(options=options) as client:
-        await client.query(f"""The dev server failed to start in the project at {repo_dir}.
+        await client.query(f"""The dev server failed to start.
 
 Here is the error output:
 
@@ -265,7 +311,12 @@ Fix the code so the dev server can start successfully. Make minimal, targeted ch
         await _process_messages(client, "implementing")
 
 
-async def launch_and_screenshot(repo_dir: str, screenshot_output: str, device_type: str = "desktop") -> None:
+async def launch_and_screenshot(
+    repo_dir: str,
+    screenshot_output: str,
+    device_type: str = "desktop",
+    instruction: str = "",
+) -> None:
     """Launch dev server and take screenshot in a single session.
 
     Uses ClaudeSDKClient to keep the same conversation context across
@@ -282,8 +333,8 @@ async def launch_and_screenshot(repo_dir: str, screenshot_output: str, device_ty
 
     async with ClaudeSDKClient(options=options) as client:
         # Phase 1: install deps + start dev server
-        emit_log("launching", "Launching project")
-        await client.query(f"""You need to launch the web application at {repo_dir}.
+        emit_log("launching", "Launching: project")
+        await client.query("""You need to launch the web application.
 
 Follow these steps:
 1. Investigate how to start the dev server (check package.json scripts, README, etc.)
@@ -299,21 +350,37 @@ IMPORTANT:
         await _process_messages(client, "launching")
 
         # Phase 2: take screenshot (same session, so dev server URL is remembered)
-        emit_log("screenshot", "Taking after screenshot")
+        emit_log("screenshot", "Taking: after screenshot")
         device = "playwright_mobile" if device_type == "mobile" else "playwright"
+
+        instruction_block = ""
+        if instruction:
+            instruction_block = f"""
+## User's change request
+\"\"\"{instruction}\"\"\"
+
+Based on this request, you MUST determine which page and area to screenshot:
+1. Read the project's routing configuration (e.g. React Router, Next.js pages, Vue Router) to find the relevant page/route
+2. Navigate to the page that is most relevant to the user's request (NOT necessarily the root `/`)
+3. If the change target is below the fold (e.g. footer, bottom section), use mcp__{device}__browser_evaluate to scroll the element into view before taking the screenshot
+"""
+
         await client.query(f"""Now take a screenshot of the running application.
 
 You already know the dev server URL from the previous step.
 
 Use the **{device}** browser tools (mcp__{device}__*) to take the screenshot.
-
+{instruction_block}
 Steps:
-1. Use mcp__{device}__browser_navigate to open the dev server URL
-2. Use mcp__{device}__browser_wait_for to wait for the page to fully load
-3. Use mcp__{device}__browser_take_screenshot to capture the viewport and save to {screenshot_output}
+1. Read the project's routing configuration to identify the correct page for the user's request
+2. Use mcp__{device}__browser_navigate to open the appropriate page URL
+3. Use mcp__{device}__browser_wait_for to wait for the page to fully load
+4. If the target area is not visible in the viewport, use mcp__{device}__browser_evaluate to scroll it into view
+5. Use mcp__{device}__browser_take_screenshot to capture the viewport and save to {screenshot_output}
 
 IMPORTANT:
 - Do NOT use fullPage. Capture only what the user actually sees in the viewport.
+- Navigate to the page most relevant to the user's request, not just the root URL.
 - If a specific element needs to be visible, use mcp__{device}__browser_evaluate to scrollIntoView first.
 """)
         await _process_messages(client, "screenshot")
@@ -342,8 +409,7 @@ async def main() -> None:
     os.makedirs(tmp_dir, exist_ok=True)
 
     s3_prefix = (
-        f"sessions/{session_id}/iterations/{iteration_index}"
-        f"/proposals/{proposal_index}"
+        f"sessions/{session_id}/iterations/{iteration_index}/proposals/{proposal_index}"
     )
 
     # Step 1: Download proposal plan from S3
@@ -357,20 +423,27 @@ async def main() -> None:
             plan_data = json.loads(raw)
             proposal_plan = plan_data.get("plan", raw)
             device_type = plan_data.get("device_type", "desktop")
+            instruction = plan_data.get("instruction", "")
             if isinstance(device_type, str):
                 device_type = device_type.lower()
             if device_type not in ("desktop", "mobile"):
                 device_type = "desktop"
         except json.JSONDecodeError:
             proposal_plan = raw  # backward compat
+            instruction = ""
     else:
         # Fallback to env var (for backward compat during transition)
         proposal_plan = os.environ.get("PROPOSAL_PLAN", "")
+        instruction = ""
     emit_log("setup", f"Using device type: {device_type}")
 
     # Log loaded proposal details
     try:
-        _plan = json.loads(proposal_plan) if isinstance(proposal_plan, str) else proposal_plan
+        _plan = (
+            json.loads(proposal_plan)
+            if isinstance(proposal_plan, str)
+            else proposal_plan
+        )
         title = _plan.get("title", f"proposal-{proposal_index}")
     except (json.JSONDecodeError, AttributeError):
         title = f"proposal-{proposal_index}"
@@ -381,7 +454,7 @@ async def main() -> None:
         sys.exit(1)
 
     # Step 2: Clone repository
-    emit_log("cloning", "Cloning repository")
+    emit_log("cloning", "Cloning: repository")
     subprocess.run(
         ["git", "clone", "--depth", "1", "--branch", branch, repo_url, repo_dir],
         check=True,
@@ -395,9 +468,9 @@ async def main() -> None:
             f"/proposals/{selected_proposal_index}/changes.diff"
         )
         local_patch = f"{tmp_dir}/parent.diff"
-        emit_log("patching", f"Downloading patch from S3: {patch_key}")
+        emit_log("patching", "Downloading: patch from S3")
         if s3_download(s3, bucket, patch_key, local_patch):
-            emit_log("patching", "Applying cumulative patch")
+            emit_log("patching", "Applying: cumulative patch")
             result = subprocess.run(
                 ["git", "am", "--3way", local_patch],
                 cwd=repo_dir,
@@ -421,7 +494,7 @@ async def main() -> None:
                     cwd=repo_dir,
                     check=True,
                 )
-            emit_log("patching", "Cumulative patch applied successfully")
+            emit_log("patching", "Thinking: cumulative patch applied successfully")
         else:
             print(
                 f"WARNING: Patch not found at s3://{bucket}/{patch_key}",
@@ -429,12 +502,14 @@ async def main() -> None:
             )
 
     # Step 3: Create local branch and implement the proposal
-    branch_name = f"local/session-{session_id[:8]}-iter{iteration_index}-prop{proposal_index}"
+    branch_name = (
+        f"local/session-{session_id[:8]}-iter{iteration_index}-prop{proposal_index}"
+    )
     subprocess.run(["git", "checkout", "-b", branch_name], cwd=repo_dir, check=True)
     emit_log("implementing", f"Created local branch: {branch_name}")
 
     screenshot_path = f"{tmp_dir}/after.png"
-    emit_log("implementing", "Implementing design proposal")
+    emit_log("implementing", "Implementing: design proposal")
     try:
         await implement_changes(repo_dir, proposal_plan)
     except Exception as e:
@@ -445,7 +520,12 @@ async def main() -> None:
     last_error = None
     for attempt in range(max_retries + 1):
         try:
-            await launch_and_screenshot(repo_dir, screenshot_path, device_type=device_type)
+            await launch_and_screenshot(
+                repo_dir,
+                screenshot_path,
+                device_type=device_type,
+                instruction=instruction,
+            )
             last_error = None
             break  # success
         except Exception as e:
@@ -466,10 +546,12 @@ async def main() -> None:
                 )
 
     if last_error:
-        emit_log("implementing", "WARNING: Could not launch dev server, screenshot may be missing")
+        emit_log(
+            "implementing",
+            "WARNING: Could not launch dev server, screenshot may be missing",
+        )
 
     # Step 4: Generate cumulative patch (squash everything since base_branch)
-    emit_log("uploading", "Generating cumulative patch")
     # Parse proposal plan to get title for commit message
     try:
         plan_data = json.loads(proposal_plan)
@@ -493,7 +575,9 @@ async def main() -> None:
     # Generate format-patch (cumulative: base_branch → HEAD)
     patch_result = subprocess.run(
         ["git", "format-patch", "-1", "HEAD", "--stdout"],
-        capture_output=True, text=True, cwd=repo_dir,
+        capture_output=True,
+        text=True,
+        cwd=repo_dir,
         check=True,
     )
     local_diff = f"{tmp_dir}/changes.diff"
@@ -501,12 +585,11 @@ async def main() -> None:
         f.write(patch_result.stdout)
 
     # Step 5: Upload results to S3
-    emit_log("uploading", "Uploading results to S3")
-
     # Upload after screenshot
     if Path(screenshot_path).exists():
         s3_upload_file(
-            s3, bucket,
+            s3,
+            bucket,
             f"{s3_prefix}/after.png",
             screenshot_path,
             content_type="image/png",
@@ -514,7 +597,8 @@ async def main() -> None:
 
     # Upload cumulative patch
     s3_upload_text(
-        s3, bucket,
+        s3,
+        bucket,
         f"{s3_prefix}/changes.diff",
         patch_result.stdout,
         content_type="text/plain",

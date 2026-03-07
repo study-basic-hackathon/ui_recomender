@@ -1,11 +1,6 @@
 #!/bin/bash
 set -e
 
-echo "=== Worker Starting ==="
-echo "Mode: ${WORKER_MODE}"
-echo "Session: ${SESSION_ID} Iter: ${ITERATION_INDEX}"
-echo "Repository: ${REPO_URL}"
-
 if [ -z "$WORKER_MODE" ]; then
   echo "Error: WORKER_MODE is required (analyze, implement, or createpr)"
   exit 1

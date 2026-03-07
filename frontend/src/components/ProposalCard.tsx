@@ -7,7 +7,12 @@ type ProposalCardProps = {
   readOnly?: boolean
 }
 
-export default function ProposalCard({ proposal, selected, onToggle, readOnly }: ProposalCardProps) {
+export default function ProposalCard({
+  proposal,
+  selected,
+  onToggle,
+  readOnly,
+}: ProposalCardProps) {
   if (proposal.status !== 'completed' || !proposal.after_screenshot_url) {
     return null
   }
@@ -15,11 +20,12 @@ export default function ProposalCard({ proposal, selected, onToggle, readOnly }:
   const borderColor = readOnly && selected ? '#34d399' : selected ? '#3b82f6' : '#e5e7eb'
   const borderWidth = selected ? '3px' : '1px'
   const bgColor = readOnly && selected ? '#ecfdf5' : selected ? '#eff6ff' : '#fff'
-  const shadow = readOnly && selected
-    ? '0 0 0 2px rgba(52,211,153,0.3)'
-    : selected
-      ? '0 0 0 2px rgba(59,130,246,0.3)'
-      : 'none'
+  const shadow =
+    readOnly && selected
+      ? '0 0 0 2px rgba(52,211,153,0.3)'
+      : selected
+        ? '0 0 0 2px rgba(59,130,246,0.3)'
+        : 'none'
 
   return (
     <div

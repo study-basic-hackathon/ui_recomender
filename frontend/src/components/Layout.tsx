@@ -63,7 +63,14 @@ export default function Layout() {
               <span style={{ fontSize: '30px', color: '#9ca3af' }}>☰</span>
             </button>
           )}
-          <span style={{ fontSize: '26px', fontWeight: 600, color: 'rgba(255,255,255,0.87)', marginRight: '16px' }}>
+          <span
+            style={{
+              fontSize: '26px',
+              fontWeight: 600,
+              color: 'rgba(255,255,255,0.87)',
+              marginRight: '16px',
+            }}
+          >
             UI Recommender
           </span>
           {headerExtra && (

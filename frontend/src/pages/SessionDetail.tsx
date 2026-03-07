@@ -55,9 +55,7 @@ function IterationBlock({
   )
 
   // For past iterations, highlight the selected proposal; for latest, use interactive selection
-  const effectiveSelectedIndex = isLatest
-    ? selectedIndex
-    : iteration.selected_proposal_index
+  const effectiveSelectedIndex = isLatest ? selectedIndex : iteration.selected_proposal_index
 
   const selectedProposal: Proposal | null =
     effectiveSelectedIndex !== null
@@ -215,30 +213,22 @@ function IterationBlock({
                           color: '#fff',
                           border: 'none',
                           borderRadius: '6px',
-                          cursor:
-                            (canCreate || isFailed) && !prLoading ? 'pointer' : 'not-allowed',
+                          cursor: (canCreate || isFailed) && !prLoading ? 'pointer' : 'not-allowed',
                           fontSize: '16px',
                           fontWeight: 600,
                           opacity: canCreate || isFailed ? 1 : 0.5,
                         }}
                       >
-                        {prLoading
-                          ? 'Creating PR...'
-                          : isFailed
-                            ? 'Retry Create PR'
-                            : 'Create PR'}
+                        {prLoading ? 'Creating PR...' : isFailed ? 'Retry Create PR' : 'Create PR'}
                       </button>
                     </>
                   )
                 })()}
 
                 {prError && (
-                  <p style={{ color: '#dc2626', fontSize: '13px', marginTop: '8px' }}>
-                    {prError}
-                  </p>
+                  <p style={{ color: '#dc2626', fontSize: '13px', marginTop: '8px' }}>{prError}</p>
                 )}
               </div>
-
             </>
           )}
         </div>
@@ -373,16 +363,31 @@ export default function SessionDetail() {
     if (session) {
       setHeaderExtra(
         <>
-          <div className="header-repo-info" style={{ display: 'flex', gap: '16px', alignItems: 'center', fontSize: '16px', color: '#6b7280' }}>
+          <div
+            className="header-repo-info"
+            style={{
+              display: 'flex',
+              gap: '16px',
+              alignItems: 'center',
+              fontSize: '16px',
+              color: '#6b7280',
+            }}
+          >
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
               <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-                <path fillRule="evenodd" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z" />
+                <path
+                  fillRule="evenodd"
+                  d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"
+                />
               </svg>
               {extractRepoName(session.repo_url)}
             </span>
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
               <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-                <path fillRule="evenodd" d="M11.75 2.5a.75.75 0 100 1.5.75.75 0 000-1.5zm-2.25.75a2.25 2.25 0 113 2.122V6A2.5 2.5 0 0110 8.5H6a1 1 0 00-1 1v1.128a2.251 2.251 0 11-1.5 0V5.372a2.25 2.25 0 111.5 0v1.836A2.492 2.492 0 016 7h4a1 1 0 001-1v-.628A2.25 2.25 0 019.5 3.25zM4.25 12a.75.75 0 100 1.5.75.75 0 000-1.5zM3.5 3.25a.75.75 0 111.5 0 .75.75 0 01-1.5 0z" />
+                <path
+                  fillRule="evenodd"
+                  d="M11.75 2.5a.75.75 0 100 1.5.75.75 0 000-1.5zm-2.25.75a2.25 2.25 0 113 2.122V6A2.5 2.5 0 0110 8.5H6a1 1 0 00-1 1v1.128a2.251 2.251 0 11-1.5 0V5.372a2.25 2.25 0 111.5 0v1.836A2.492 2.492 0 016 7h4a1 1 0 001-1v-.628A2.25 2.25 0 019.5 3.25zM4.25 12a.75.75 0 100 1.5.75.75 0 000-1.5zM3.5 3.25a.75.75 0 111.5 0 .75.75 0 01-1.5 0z"
+                />
               </svg>
               {session.base_branch}
             </span>
@@ -390,7 +395,7 @@ export default function SessionDetail() {
           <div style={{ marginLeft: 'auto' }}>
             <StatusBadge status={iterationStatus} />
           </div>
-        </>
+        </>,
       )
     }
     return () => setHeaderExtra(null)
@@ -418,13 +423,15 @@ export default function SessionDetail() {
 
   const isInProgress = ['pending', 'analyzing', 'implementing'].includes(iterationStatus)
 
-  const completedProposalsForInput = latestIteration?.proposals.filter(
-    (p) => p.status === 'completed' && p.after_screenshot_url,
-  ) ?? []
-  const selectedProposal = selectedIndex !== null
-    ? (completedProposalsForInput.find((p) => p.proposal_index === selectedIndex) ?? null)
-    : null
-  const showContinueInput = latestIteration?.status === 'completed' && completedProposalsForInput.length > 0
+  const completedProposalsForInput =
+    latestIteration?.proposals.filter((p) => p.status === 'completed' && p.after_screenshot_url) ??
+    []
+  const selectedProposal =
+    selectedIndex !== null
+      ? (completedProposalsForInput.find((p) => p.proposal_index === selectedIndex) ?? null)
+      : null
+  const showContinueInput =
+    latestIteration?.status === 'completed' && completedProposalsForInput.length > 0
 
   return (
     <div style={{ maxWidth: '1000px', margin: '0 auto', padding: '0px 24px 12px' }}>
@@ -548,9 +555,7 @@ export default function SessionDetail() {
             </button>
           </div>
           {continueError && (
-            <p style={{ color: '#dc2626', fontSize: '13px', marginTop: '8px' }}>
-              {continueError}
-            </p>
+            <p style={{ color: '#dc2626', fontSize: '13px', marginTop: '8px' }}>{continueError}</p>
           )}
         </div>
       )}

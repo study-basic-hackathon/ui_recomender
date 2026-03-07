@@ -57,6 +57,12 @@ button:focus-visible {
   outline: 4px auto -webkit-focus-ring-color;
 }
 
+@media (max-width: 768px) {
+  .header-repo-info {
+    display: none !important;
+  }
+}
+
 @media (prefers-color-scheme: light) {
   :root {
     color: #213547;

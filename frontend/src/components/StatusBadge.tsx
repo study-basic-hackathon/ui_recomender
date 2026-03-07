@@ -17,9 +17,9 @@ export default function StatusBadge({ status }: StatusBadgeProps) {
     <span
       style={{
         display: 'inline-block',
-        padding: '2px 10px',
+        padding: '4px 12px',
         borderRadius: '12px',
-        fontSize: '13px',
+        fontSize: '14px',
         fontWeight: 600,
         backgroundColor: style.bg,
         color: style.text,

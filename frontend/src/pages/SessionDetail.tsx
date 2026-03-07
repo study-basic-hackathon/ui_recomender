@@ -10,6 +10,15 @@ import ProposalCard from '../components/ProposalCard'
 import LogPanel from '../components/LogPanel'
 import type { LogStreamState } from '../hooks/useLogStream'
 
+function extractRepoName(repoUrl: string): string {
+  try {
+    const parts = repoUrl.replace(/\.git$/, '').split('/')
+    return parts.slice(-2).join('/')
+  } catch {
+    return repoUrl
+  }
+}
+
 /* ------------------------------------------------------------------ */
 /*  IterationBlock — renders a single iteration in the chat stack     */
 /* ------------------------------------------------------------------ */
@@ -67,22 +76,21 @@ function IterationBlock({
 
   return (
     <div>
-      {/* Instruction bubble */}
-      <div
-        style={{
-          padding: '12px 16px',
-          backgroundColor: '#1f2937',
-          border: '1px solid #374151',
-          borderRadius: '12px',
-          marginBottom: '16px',
-          fontSize: '16px',
-          color: 'rgba(255,255,255,0.87)',
-        }}
-      >
-        <span style={{ color: '#9ca3af', fontSize: '13px' }}>
-          Iteration #{iteration.iteration_index + 1}
-        </span>
-        <div style={{ marginTop: '4px' }}>{iteration.instruction}</div>
+      {/* Instruction bubble — chat-style, right-aligned */}
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '16px' }}>
+        <div
+          style={{
+            maxWidth: '80%',
+            padding: '10px 18px',
+            backgroundColor: '#374151',
+            borderRadius: '20px',
+            fontSize: '15px',
+            color: 'rgba(255,255,255,0.87)',
+            lineHeight: '1.5',
+          }}
+        >
+          {iteration.instruction}
+        </div>
       </div>
 
       {/* Error message */}
@@ -249,15 +257,18 @@ function IterationBlock({
                   borderRadius: '12px',
                   backgroundColor: '#1a1a1a',
                   padding: '12px 16px',
+                  display: 'flex',
+                  alignItems: 'flex-end',
+                  gap: '8px',
                 }}
               >
                 <textarea
                   value={continueInstruction}
                   onChange={(e) => onContinueInstructionChange(e.target.value)}
                   placeholder="Select a base design, then describe additional changes..."
-                  rows={2}
+                  rows={3}
                   style={{
-                    width: '100%',
+                    flex: 1,
                     padding: 0,
                     border: 'none',
                     outline: 'none',
@@ -269,59 +280,61 @@ function IterationBlock({
                     lineHeight: '1.5',
                   }}
                 />
-                <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '8px' }}>
-                  <button
-                    onClick={onContinue}
-                    disabled={continueLoading || !continueInstruction.trim() || !selectedProposal}
-                    style={{
-                      width: '36px',
-                      height: '36px',
-                      borderRadius: '50%',
-                      border: 'none',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      cursor:
-                        continueLoading || !continueInstruction.trim() || !selectedProposal
-                          ? 'not-allowed'
-                          : 'pointer',
-                      backgroundColor:
-                        continueLoading || !continueInstruction.trim() || !selectedProposal
-                          ? '#4b5563'
-                          : '#fff',
-                      color:
-                        continueLoading || !continueInstruction.trim() || !selectedProposal
-                          ? '#9ca3af'
-                          : '#111',
-                      transition: 'background-color 0.15s',
-                    }}
-                    aria-label="Send"
-                  >
-                    {continueLoading ? (
-                      <span style={{ fontSize: '14px' }}>...</span>
-                    ) : (
-                      <svg
-                        width="18"
-                        height="18"
-                        viewBox="0 0 24 24"
+                <button
+                  onClick={onContinue}
+                  disabled={continueLoading || !continueInstruction.trim() || !selectedProposal}
+                  style={{
+                    width: '36px',
+                    height: '36px',
+                    borderRadius: '50%',
+                    border: 'none',
+                    flexShrink: 0,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    cursor:
+                      continueLoading || !continueInstruction.trim() || !selectedProposal
+                        ? 'not-allowed'
+                        : 'pointer',
+                    backgroundColor:
+                      continueLoading || !continueInstruction.trim() || !selectedProposal
+                        ? 'rgba(255,255,255,0.15)'
+                        : '#fff',
+                    color: '#111',
+                    transition: 'background-color 0.15s',
+                  }}
+                  aria-label="Send"
+                >
+                  {continueLoading ? (
+                    <span style={{ fontSize: '14px' }}>...</span>
+                  ) : (
+                    <svg
+                      width="20"
+                      height="20"
+                      viewBox="0 0 24 24"
+                      style={{ display: 'block', flexShrink: 0 }}
+                    >
+                      <path
+                        d="M12 19V5M12 5l-7 7M12 5l7 7"
                         fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2.5"
+                        stroke={
+                          continueLoading || !continueInstruction.trim() || !selectedProposal
+                            ? 'rgba(255,255,255,0.5)'
+                            : '#000000'
+                        }
+                        strokeWidth="3"
                         strokeLinecap="round"
                         strokeLinejoin="round"
-                      >
-                        <line x1="12" y1="19" x2="12" y2="5" />
-                        <polyline points="5 12 12 5 19 12" />
-                      </svg>
-                    )}
-                  </button>
-                </div>
-                {continueError && (
-                  <p style={{ color: '#dc2626', fontSize: '13px', marginTop: '8px' }}>
-                    {continueError}
-                  </p>
-                )}
+                      />
+                    </svg>
+                  )}
+                </button>
               </div>
+              {continueError && (
+                <p style={{ color: '#dc2626', fontSize: '13px', marginTop: '8px' }}>
+                  {continueError}
+                </p>
+              )}
             </>
           )}
         </div>
@@ -336,7 +349,7 @@ function IterationBlock({
 
 export default function SessionDetail() {
   const { sessionId } = useParams<{ sessionId: string }>()
-  const { refreshSessions } = useLayoutContext()
+  const { refreshSessions, setHeaderExtra } = useLayoutContext()
   const { session, error, isLoading, refetch } = useSessionPolling(sessionId ?? null)
 
   // Compute isInProgress early so useLogStream can be called unconditionally
@@ -450,6 +463,35 @@ export default function SessionDetail() {
     }
   }, [session, sessionId, latestIteration, refetch])
 
+  // Push repo/branch/badge into the Layout header
+  const iterationStatus = latestIteration?.status ?? 'pending'
+  useEffect(() => {
+    if (session) {
+      setHeaderExtra(
+        <>
+          <div className="header-repo-info" style={{ display: 'flex', gap: '16px', alignItems: 'center', fontSize: '16px', color: '#6b7280' }}>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                <path fillRule="evenodd" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z" />
+              </svg>
+              {extractRepoName(session.repo_url)}
+            </span>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                <path fillRule="evenodd" d="M11.75 2.5a.75.75 0 100 1.5.75.75 0 000-1.5zm-2.25.75a2.25 2.25 0 113 2.122V6A2.5 2.5 0 0110 8.5H6a1 1 0 00-1 1v1.128a2.251 2.251 0 11-1.5 0V5.372a2.25 2.25 0 111.5 0v1.836A2.492 2.492 0 016 7h4a1 1 0 001-1v-.628A2.25 2.25 0 019.5 3.25zM4.25 12a.75.75 0 100 1.5.75.75 0 000-1.5zM3.5 3.25a.75.75 0 111.5 0 .75.75 0 01-1.5 0z" />
+              </svg>
+              {session.base_branch}
+            </span>
+          </div>
+          <div style={{ marginLeft: 'auto' }}>
+            <StatusBadge status={iterationStatus} />
+          </div>
+        </>
+      )
+    }
+    return () => setHeaderExtra(null)
+  }, [session, iterationStatus, setHeaderExtra])
+
   if (!sessionId) return <p>Invalid session ID</p>
 
   if (isLoading && !session) {
@@ -470,23 +512,10 @@ export default function SessionDetail() {
 
   if (!session) return null
 
-  const iterationStatus = latestIteration?.status ?? 'pending'
   const isInProgress = ['pending', 'analyzing', 'implementing'].includes(iterationStatus)
 
   return (
-    <div style={{ maxWidth: '1000px', margin: '0 auto', padding: '24px' }}>
-      {/* Session header */}
-      <div style={{ marginBottom: '24px' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <h1 style={{ fontSize: '20px', margin: 0 }}>Session Detail</h1>
-          <StatusBadge status={iterationStatus} />
-        </div>
-        <div style={{ fontSize: '16px', color: '#6b7280', marginTop: '8px' }}>
-          <div>Repository: {session.repo_url}</div>
-          <div>Branch: {session.base_branch}</div>
-        </div>
-      </div>
-
+    <div style={{ maxWidth: '1000px', margin: '0 auto', padding: '0px 24px 12px' }}>
       {/* All iterations stacked */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
         {session.iterations.map((iter, idx) => (

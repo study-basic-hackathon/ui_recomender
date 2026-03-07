@@ -199,8 +199,16 @@ async def generate_proposals(
     Returns a dict with "device_type" and "proposals" keys.
     """
     emit_log("analyzing", "Thinking: Generating design system recommendations")
-    design_context = generate_design_context(repo_dir, instruction)
-    emit_log("analyzing", "Thinking: Design system context generated successfully")
+    try:
+        design_context = generate_design_context(repo_dir, instruction)
+        emit_log("analyzing", "Thinking: Design system context generated successfully")
+    except Exception as e:
+        emit_log(
+            "analyzing",
+            "Warning: Failed to generate design system context; continuing without it",
+            detail=str(e),
+        )
+        design_context = ""
 
     prompt = build_analyze_prompt(instruction, num_proposals, design_context=design_context)
 

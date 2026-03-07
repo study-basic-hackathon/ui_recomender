@@ -37,9 +37,24 @@ def _to_proposal_response(
     proposal: Proposal, session_id: UUID, iteration_index: int
 ) -> ProposalResponse:
     try:
-        plan = json.loads(proposal.plan) if proposal.plan else []
+        raw_plan = json.loads(proposal.plan) if proposal.plan else []
     except json.JSONDecodeError:
-        plan = []
+        raw_plan = []
+    if not isinstance(raw_plan, list):
+        raw_plan = [raw_plan]
+    plan: list[str] = []
+    for item in raw_plan:
+        if isinstance(item, str):
+            plan.append(item)
+        elif isinstance(item, dict):
+            parts = []
+            if item.get("file"):
+                parts.append(item["file"])
+            if item.get("description"):
+                parts.append(item["description"])
+            plan.append(": ".join(parts) if parts else str(item))
+        else:
+            plan.append(str(item))
     try:
         files = json.loads(proposal.files) if proposal.files else []
     except json.JSONDecodeError:

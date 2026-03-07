@@ -35,6 +35,37 @@ from worker_common import (
 )
 
 
+def _uipro_search_path(repo_dir: str) -> str:
+    return f"{repo_dir}/.claude/skills/ui-ux-pro-max/scripts/search.py"
+
+
+def generate_design_context(repo_dir: str, instruction: str) -> str:
+    """Run ui-ux-pro-max design system generator. Raises on failure."""
+    # Initialize uipro in the cloned repo
+    init_result = subprocess.run(
+        ["uipro", "init", "--ai", "claude", "--force", "--offline"],
+        cwd=repo_dir, capture_output=True, text=True, timeout=30,
+    )
+    if init_result.returncode != 0:
+        raise RuntimeError(f"uipro init failed (rc={init_result.returncode}): {init_result.stderr[:500]}")
+
+    search_py = _uipro_search_path(repo_dir)
+    result = subprocess.run(
+        [
+            "python3", search_py,
+            instruction,
+            "--design-system", "-f", "markdown",
+        ],
+        capture_output=True, text=True, timeout=30,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"uipro failed (rc={result.returncode}): {result.stderr[:500]}")
+    output = result.stdout.strip()
+    if not output:
+        raise RuntimeError("uipro returned empty output")
+    return output[:8000] if len(output) > 8000 else output
+
+
 async def launch_and_screenshot(
     repo_dir: str,
     screenshot_output: str,
@@ -167,7 +198,19 @@ async def generate_proposals(
 
     Returns a dict with "device_type" and "proposals" keys.
     """
-    prompt = build_analyze_prompt(instruction, num_proposals)
+    emit_log("analyzing", "Thinking: Generating design system recommendations")
+    try:
+        design_context = generate_design_context(repo_dir, instruction)
+        emit_log("analyzing", "Thinking: Design system context generated successfully")
+    except Exception as e:
+        emit_log(
+            "analyzing",
+            "Warning: Failed to generate design system context; continuing without it",
+            detail=str(e),
+        )
+        design_context = ""
+
+    prompt = build_analyze_prompt(instruction, num_proposals, design_context=design_context)
 
     collected_text = []
 

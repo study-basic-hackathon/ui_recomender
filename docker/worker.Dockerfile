@@ -52,6 +52,9 @@ RUN npm install -g @playwright/mcp@0.0.68 && \
     cd /usr/lib/node_modules/@playwright/mcp && \
     npx playwright install chromium
 
+# Install ui-ux-pro-max design intelligence tool
+RUN npm install -g uipro-cli
+
 # Install GitHub CLI
 RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | \
     dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg && \

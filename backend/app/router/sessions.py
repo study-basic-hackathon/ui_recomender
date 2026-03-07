@@ -40,6 +40,8 @@ def _to_proposal_response(
         raw_plan = json.loads(proposal.plan) if proposal.plan else []
     except json.JSONDecodeError:
         raw_plan = []
+    if not isinstance(raw_plan, list):
+        raw_plan = [raw_plan]
     plan: list[str] = []
     for item in raw_plan:
         if isinstance(item, str):

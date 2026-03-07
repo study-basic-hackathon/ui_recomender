@@ -26,6 +26,23 @@ export function useSessionPolling(sessionId: string | null, intervalMs: number =
     }
   }, [])
 
+  const restartPolling = useCallback(() => {
+    if (timerRef.current !== null || !sessionId) return
+    const poll = async () => {
+      try {
+        const data = await getSession(sessionId)
+        setSession(data)
+        if (isTerminal(data)) {
+          stopPolling()
+        }
+      } catch (e) {
+        setError((e as Error).message)
+      }
+    }
+    poll()
+    timerRef.current = window.setInterval(poll, intervalMs)
+  }, [sessionId, intervalMs, stopPolling])
+
   useEffect(() => {
     if (!sessionId) {
       return
@@ -63,10 +80,13 @@ export function useSessionPolling(sessionId: string | null, intervalMs: number =
     try {
       const data = await getSession(sessionId)
       setSession(data)
+      if (!isTerminal(data) && timerRef.current === null) {
+        restartPolling()
+      }
     } catch (e) {
       setError((e as Error).message)
     }
-  }, [sessionId])
+  }, [sessionId, restartPolling])
 
   return { session, error, isLoading, refetch }
 }

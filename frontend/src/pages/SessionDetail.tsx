@@ -32,11 +32,6 @@ type IterationBlockProps = {
   onCreatePR: () => void
   prLoading: boolean
   prError: string | null
-  continueInstruction: string
-  onContinueInstructionChange: (v: string) => void
-  onContinue: () => void
-  continueLoading: boolean
-  continueError: string | null
   // log stream
   logStreamState: LogStreamState
   isInProgress: boolean
@@ -50,11 +45,6 @@ function IterationBlock({
   onCreatePR,
   prLoading,
   prError,
-  continueInstruction,
-  onContinueInstructionChange,
-  onContinue,
-  continueLoading,
-  continueError,
   logStreamState,
   isInProgress,
 }: IterationBlockProps) {
@@ -162,7 +152,7 @@ function IterationBlock({
             ))}
           </div>
 
-          {/* Create PR button & Continue input — latest only */}
+          {/* Create PR button — latest only */}
           {isLatest && (
             <>
               {/* Create PR button */}
@@ -249,92 +239,6 @@ function IterationBlock({
                 )}
               </div>
 
-              {/* Continue Refining — chat-style input */}
-              <div
-                style={{
-                  marginTop: '24px',
-                  border: '1px solid #4b5563',
-                  borderRadius: '12px',
-                  backgroundColor: '#1a1a1a',
-                  padding: '12px 16px',
-                  display: 'flex',
-                  alignItems: 'flex-end',
-                  gap: '8px',
-                }}
-              >
-                <textarea
-                  value={continueInstruction}
-                  onChange={(e) => onContinueInstructionChange(e.target.value)}
-                  placeholder="Select a base design, then describe additional changes..."
-                  rows={3}
-                  style={{
-                    flex: 1,
-                    padding: 0,
-                    border: 'none',
-                    outline: 'none',
-                    fontSize: '15px',
-                    resize: 'none',
-                    boxSizing: 'border-box',
-                    backgroundColor: 'transparent',
-                    color: 'rgba(255,255,255,0.87)',
-                    lineHeight: '1.5',
-                  }}
-                />
-                <button
-                  onClick={onContinue}
-                  disabled={continueLoading || !continueInstruction.trim() || !selectedProposal}
-                  style={{
-                    width: '36px',
-                    height: '36px',
-                    borderRadius: '50%',
-                    border: 'none',
-                    flexShrink: 0,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    cursor:
-                      continueLoading || !continueInstruction.trim() || !selectedProposal
-                        ? 'not-allowed'
-                        : 'pointer',
-                    backgroundColor:
-                      continueLoading || !continueInstruction.trim() || !selectedProposal
-                        ? 'rgba(255,255,255,0.15)'
-                        : '#fff',
-                    color: '#111',
-                    transition: 'background-color 0.15s',
-                  }}
-                  aria-label="Send"
-                >
-                  {continueLoading ? (
-                    <span style={{ fontSize: '14px' }}>...</span>
-                  ) : (
-                    <svg
-                      width="20"
-                      height="20"
-                      viewBox="0 0 24 24"
-                      style={{ display: 'block', flexShrink: 0 }}
-                    >
-                      <path
-                        d="M12 19V5M12 5l-7 7M12 5l7 7"
-                        fill="none"
-                        stroke={
-                          continueLoading || !continueInstruction.trim() || !selectedProposal
-                            ? 'rgba(255,255,255,0.5)'
-                            : '#000000'
-                        }
-                        strokeWidth="3"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      />
-                    </svg>
-                  )}
-                </button>
-              </div>
-              {continueError && (
-                <p style={{ color: '#dc2626', fontSize: '13px', marginTop: '8px' }}>
-                  {continueError}
-                </p>
-              )}
             </>
           )}
         </div>
@@ -514,10 +418,18 @@ export default function SessionDetail() {
 
   const isInProgress = ['pending', 'analyzing', 'implementing'].includes(iterationStatus)
 
+  const completedProposalsForInput = latestIteration?.proposals.filter(
+    (p) => p.status === 'completed' && p.after_screenshot_url,
+  ) ?? []
+  const selectedProposal = selectedIndex !== null
+    ? (completedProposalsForInput.find((p) => p.proposal_index === selectedIndex) ?? null)
+    : null
+  const showContinueInput = latestIteration?.status === 'completed' && completedProposalsForInput.length > 0
+
   return (
     <div style={{ maxWidth: '1000px', margin: '0 auto', padding: '0px 24px 12px' }}>
       {/* All iterations stacked */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '24px', overflow: 'hidden' }}>
         {session.iterations.map((iter, idx) => (
           <Fragment key={iter.id}>
             {idx > 0 && (
@@ -537,17 +449,111 @@ export default function SessionDetail() {
               onCreatePR={handleCreatePR}
               prLoading={prLoading}
               prError={prError}
-              continueInstruction={continueInstruction}
-              onContinueInstructionChange={setContinueInstruction}
-              onContinue={handleContinue}
-              continueLoading={continueLoading}
-              continueError={continueError}
               logStreamState={logStreamState}
               isInProgress={isInProgress}
             />
           </Fragment>
         ))}
       </div>
+
+      {/* Sticky input bar */}
+      {showContinueInput && (
+        <div
+          style={{
+            position: 'sticky',
+            bottom: 0,
+            backgroundColor: '#242424',
+            paddingTop: '16px',
+            paddingBottom: '12px',
+            zIndex: 10,
+          }}
+        >
+          <div
+            style={{
+              border: '1px solid #4b5563',
+              borderRadius: '12px',
+              backgroundColor: '#1a1a1a',
+              padding: '12px 16px',
+              display: 'flex',
+              alignItems: 'flex-end',
+              gap: '8px',
+            }}
+          >
+            <textarea
+              value={continueInstruction}
+              onChange={(e) => setContinueInstruction(e.target.value)}
+              placeholder="Select a base design, then describe additional changes..."
+              rows={3}
+              style={{
+                flex: 1,
+                padding: 0,
+                border: 'none',
+                outline: 'none',
+                fontSize: '15px',
+                resize: 'none',
+                boxSizing: 'border-box',
+                backgroundColor: 'transparent',
+                color: 'rgba(255,255,255,0.87)',
+                lineHeight: '1.5',
+              }}
+            />
+            <button
+              onClick={handleContinue}
+              disabled={continueLoading || !continueInstruction.trim() || !selectedProposal}
+              style={{
+                width: '36px',
+                height: '36px',
+                borderRadius: '50%',
+                border: 'none',
+                flexShrink: 0,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                cursor:
+                  continueLoading || !continueInstruction.trim() || !selectedProposal
+                    ? 'not-allowed'
+                    : 'pointer',
+                backgroundColor:
+                  continueLoading || !continueInstruction.trim() || !selectedProposal
+                    ? 'rgba(255,255,255,0.15)'
+                    : '#fff',
+                color: '#111',
+                transition: 'background-color 0.15s',
+              }}
+              aria-label="Send"
+            >
+              {continueLoading ? (
+                <span style={{ fontSize: '14px' }}>...</span>
+              ) : (
+                <svg
+                  width="20"
+                  height="20"
+                  viewBox="0 0 24 24"
+                  style={{ display: 'block', flexShrink: 0 }}
+                >
+                  <path
+                    d="M12 19V5M12 5l-7 7M12 5l7 7"
+                    fill="none"
+                    stroke={
+                      continueLoading || !continueInstruction.trim() || !selectedProposal
+                        ? 'rgba(255,255,255,0.5)'
+                        : '#000000'
+                    }
+                    strokeWidth="3"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+              )}
+            </button>
+          </div>
+          {continueError && (
+            <p style={{ color: '#dc2626', fontSize: '13px', marginTop: '8px' }}>
+              {continueError}
+            </p>
+          )}
+        </div>
+      )}
 
       {/* Auto-scroll anchor */}
       <div ref={bottomRef} />

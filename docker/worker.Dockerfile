@@ -47,8 +47,9 @@ RUN apt-get update && apt-get install -y \
 
 WORKDIR /workspace
 
-# Install Playwright and Chromium (without --with-deps since deps are installed above)
-RUN npm install -g playwright@1.49.0 @playwright/mcp@latest && \
+# Install Playwright MCP with pinned version and its bundled Chromium
+RUN npm install -g @playwright/mcp@0.0.68 && \
+    cd /usr/lib/node_modules/@playwright/mcp && \
     npx playwright install chromium
 
 # Install GitHub CLI

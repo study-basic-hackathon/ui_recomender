@@ -77,13 +77,6 @@ def _emit_tool_detail(phase: str, tool_name: str, raw_input: str) -> None:
     elif tool_name in ("Write", "Edit"):
         path = params.get("file_path", "?").replace("/workspace/repo/", "")
         emit_log(phase, f"Editing: {path}")
-    elif tool_name == "Bash":
-        cmd = (
-            params.get("command", "?")
-            .replace("/workspace/repo/", "")
-            .replace("/workspace/repo", ".")
-        )
-        emit_log(phase, f"Running: {cmd[:100]}")
 
 
 async def process_messages(client: ClaudeSDKClient, phase: str) -> None:

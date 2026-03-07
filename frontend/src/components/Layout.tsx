@@ -1,15 +1,17 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, type ReactNode } from 'react'
 import { Outlet } from 'react-router-dom'
 import { listSessions, type Session } from '../services/api'
 import Sidebar from './Sidebar'
 
 type LayoutContext = {
   refreshSessions: () => void
+  setHeaderExtra: (content: ReactNode | null) => void
 }
 
 export default function Layout() {
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [sessions, setSessions] = useState<Session[]>([])
+  const [headerExtra, setHeaderExtra] = useState<ReactNode | null>(null)
 
   const refreshSessions = useCallback(() => {
     listSessions()
@@ -38,6 +40,12 @@ export default function Layout() {
             display: 'flex',
             alignItems: 'center',
             gap: '12px',
+            borderBottom: '1px solid #374151',
+            marginBottom: '24px',
+            position: 'sticky',
+            top: 0,
+            zIndex: 10,
+            backgroundColor: '#242424',
           }}
         >
           {!sidebarOpen && (
@@ -55,11 +63,23 @@ export default function Layout() {
               <span style={{ fontSize: '30px', color: '#9ca3af' }}>☰</span>
             </button>
           )}
-          <span style={{ fontSize: '26px', fontWeight: 600, color: 'rgba(255,255,255,0.87)' }}>
+          <span
+            style={{
+              fontSize: '26px',
+              fontWeight: 600,
+              color: 'rgba(255,255,255,0.87)',
+              marginRight: '16px',
+            }}
+          >
             UI Recommender
           </span>
+          {headerExtra && (
+            <div style={{ flex: 1, display: 'flex', alignItems: 'center', marginTop: '4px' }}>
+              {headerExtra}
+            </div>
+          )}
         </div>
-        <Outlet context={{ refreshSessions } satisfies LayoutContext} />
+        <Outlet context={{ refreshSessions, setHeaderExtra } satisfies LayoutContext} />
       </div>
     </div>
   )

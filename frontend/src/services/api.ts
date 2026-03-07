@@ -24,6 +24,7 @@ export interface Iteration {
   selected_proposal_index: number | null
   status: 'pending' | 'analyzing' | 'analyzed' | 'implementing' | 'completed' | 'failed'
   before_screenshot_url: string | null
+  device_type: 'desktop' | 'mobile' | null
   error_message: string | null
   proposals: Proposal[]
   created_at: string

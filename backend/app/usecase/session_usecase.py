@@ -333,6 +333,7 @@ async def _run_session_analysis(
                 UUID(iteration_id),
                 IterationStatus.ANALYZED,
                 before_screenshot_key=result.get("before_screenshot_key"),
+                device_type=device_type,
             )
             logger.info(
                 "Session %s iter %d analysis done: %d proposals (device: %s)",

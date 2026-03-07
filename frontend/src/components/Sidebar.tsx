@@ -56,7 +56,6 @@ export default function Sidebar({ sessions, isOpen, onToggle }: SidebarProps) {
             display: 'flex',
             justifyContent: 'space-between',
             alignItems: 'center',
-            borderBottom: '1px solid #374151',
           }}
         >
           <img

@@ -164,16 +164,32 @@ def s3_upload_text(s3, bucket, key, text, content_type="text/plain"):
 
 async def implement_changes(repo_dir: str, proposal_plan: str) -> None:
     """Use Claude Agent SDK to implement the design proposal."""
-    prompt = f"""You are implementing UI changes to a web application.
+    prompt = f"""Implement the following UI design changes to this web application.
 
-Here is the specific design proposal to implement:
-
+## Design Proposal
 {proposal_plan}
 
-- Implement all the changes described in the plan
-- All file modifications must be correct and complete
-- Follow existing code conventions and patterns
-- Do not leave any TODO comments or incomplete implementations
+## Implementation Rules
+
+1. BEFORE editing any file, READ it first to understand its current structure and imports.
+2. Make changes file by file in the order specified in the plan.
+3. Preserve all existing functionality -- do not remove event handlers, routing, or data fetching unless the plan explicitly says to.
+4. Match the existing code style:
+   - Same indentation (tabs vs spaces)
+   - Same quote style (single vs double)
+   - Same component patterns (hooks vs classes, styled-components vs CSS modules vs Tailwind)
+5. For CSS changes, use the same styling approach already in the project.
+6. Do NOT add new npm dependencies. Work with what is already installed.
+7. Do NOT leave TODO comments, placeholder text, or commented-out code.
+
+## Verification
+
+After all edits are complete:
+1. Run the project's lint/typecheck command if one exists (check package.json scripts for "lint", "typecheck", or "check")
+2. If there are errors, fix them before finishing
+3. If no lint command exists, re-read each modified file to verify correctness
+
+Complete ALL changes. Partial implementations are not acceptable.
 """
 
     current_tool = None
@@ -260,13 +276,20 @@ async def _process_messages(client: ClaudeSDKClient, phase: str) -> None:
 
 
 async def kill_dev_servers(repo_dir: str) -> None:
-    """Kill any lingering dev server processes (node, vite, next, etc.)."""
-    for pattern in ["node", "vite", "next"]:
+    """Kill any lingering dev server processes (frontend and backend)."""
+    for pattern in [
+        "node",
+        "vite",
+        "next",
+        "uvicorn",
+        "gunicorn",
+        "flask",
+        "manage.py runserver",
+    ]:
         subprocess.run(
             ["pkill", "-f", pattern],
             capture_output=True,
         )
-    # Give processes time to terminate
     await asyncio.sleep(2)
 
 
@@ -275,8 +298,8 @@ async def fix_with_claude(
 ) -> None:
     """Use Claude to diagnose and fix the dev server launch failure."""
     options = ClaudeAgentOptions(
-        allowed_tools=["Read", "Write", "Edit", "Bash", "Glob", "Grep"]
-        + PLAYWRIGHT_MCP_TOOLS,
+        allowed_tools=["Read", "Write", "Edit", "Bash", "Glob", "Grep"],
+        # Browser tools removed: server is down so browser cannot connect, wasting turns
         mcp_servers=PLAYWRIGHT_MCP_SERVERS,
         cwd=repo_dir,
         max_turns=20,
@@ -284,29 +307,38 @@ async def fix_with_claude(
         include_partial_messages=True,
     )
 
-    device = "playwright_mobile" if device_type == "mobile" else "playwright"
     async with ClaudeSDKClient(options=options) as client:
-        await client.query(f"""The dev server failed to start.
+        await client.query(f"""The dev server failed to start. Diagnose and fix the issue.
 
-Here is the error output:
-
+## Error Output
 ```
 {error_message}
 ```
 
-Please diagnose and fix the issue:
-1. Use mcp__{device}__browser_console_messages to check for JavaScript errors
-2. Use mcp__{device}__browser_navigate and mcp__{device}__browser_snapshot to check the page state
-3. Read source files to identify root cause
-4. Fix the code. Make minimal changes.
+## Diagnostic Steps (in order)
 
-Common causes include:
-- Missing or incorrect dependencies (run `npm install` or similar)
-- Build errors in the source code (syntax errors, import errors, type errors)
-- Port conflicts (change the port configuration)
-- Missing environment variables or config files
+1. Check what processes are running: `ps aux | grep -E "node|vite|next|python|uvicorn"`
+2. Check for port conflicts: `lsof -i :3000 -i :5173 -i :8000 2>/dev/null`
+3. If a process is running but erroring, check its log output
+4. Read the relevant source files mentioned in the error to identify root cause
+5. Fix the code with minimal, targeted changes
 
-Fix the code so the dev server can start successfully. Make minimal, targeted changes.
+## Common Fixes
+- Import errors: fix the import path or add missing export
+- Syntax errors: fix the syntax in the indicated file and line
+- Missing dependencies: run `npm install` (do NOT add new packages)
+- Port conflict: kill the conflicting process with `kill <pid>`
+- Missing .env variables: create/update .env with required values
+- TypeScript errors: fix type issues or add appropriate type assertions
+- Backend not available: if frontend requires a backend that cannot start, mock the API calls or set API URL to empty string
+
+## After Fixing
+1. Kill any broken server processes: `pkill -f "node|vite" 2>/dev/null; sleep 1`
+2. Restart the dev server: `npm run dev &`
+3. Wait for it: `for i in $(seq 1 15); do curl -s http://localhost:5173 > /dev/null && break; sleep 2; done`
+4. Confirm: `curl -s http://localhost:5173 | head -3`
+
+Make only the minimum changes needed. Do NOT refactor or restructure code.
 """)
         await _process_messages(client, "implementing")
 
@@ -334,18 +366,28 @@ async def launch_and_screenshot(
     async with ClaudeSDKClient(options=options) as client:
         # Phase 1: install deps + start dev server
         emit_log("launching", "Launching: project")
-        await client.query("""You need to launch the web application.
+        await client.query("""Launch the dev server for this web application.
 
-Follow these steps:
-1. Investigate how to start the dev server (check package.json scripts, README, etc.)
-2. Install the project's dependencies if needed (e.g. `npm install` in the project directory)
-3. Start the dev server in the background using Bash (e.g. `npm run dev &` or whatever is appropriate)
-4. Wait for the server to become ready (poll with curl until it responds)
+## CRITICAL RULES
+- Do NOT run `npx playwright install` -- Playwright is pre-installed.
+- Do NOT install global npm packages.
+- Do NOT run docker-compose -- Docker is not available in this environment.
 
-IMPORTANT:
-- Playwright and Chromium are already installed globally. Do NOT run `npx playwright install` or any Playwright installation commands.
-- Only install the PROJECT's dependencies (e.g. `npm install` in the project directory).
-- Make sure the dev server is running and responding before finishing.
+## Steps
+
+1. Read package.json to understand the project structure and scripts.
+2. If .env.example exists, copy it to .env. Set API URLs to http://localhost:8000.
+3. Run `npm install` in the project root (or frontend directory if monorepo).
+4. If the project has a backend (check for /server, /backend, /api directories):
+   - For Node.js: `cd <backend-dir> && npm install && npm run dev &`
+   - For Python: `cd <backend-dir> && pip install -r requirements.txt && python -m uvicorn main:app --port 8000 &` (or similar)
+   - If backend needs PostgreSQL/Redis/Docker, skip it and proceed with frontend only.
+5. Start the frontend: `npm run dev &`
+6. Poll until ready: `for i in $(seq 1 30); do curl -s http://localhost:5173 > /dev/null && break; sleep 2; done`
+   (Adjust the port based on the framework: Vite=5173, Next.js=3000, CRA=3000, Angular=4200)
+7. Confirm with `curl -s http://localhost:<port> | head -5`
+
+After the server is running, state the URL (e.g., "Dev server is running at http://localhost:5173").
 """)
         await _process_messages(client, "launching")
 
@@ -356,32 +398,22 @@ IMPORTANT:
         instruction_block = ""
         if instruction:
             instruction_block = f"""
-## User's change request
-\"\"\"{instruction}\"\"\"
-
-Based on this request, you MUST determine which page and area to screenshot:
-1. Read the project's routing configuration (e.g. React Router, Next.js pages, Vue Router) to find the relevant page/route
-2. Navigate to the page that is most relevant to the user's request (NOT necessarily the root `/`)
-3. If the change target is below the fold (e.g. footer, bottom section), use mcp__{device}__browser_evaluate to scroll the element into view before taking the screenshot
+The user requested: \"\"\"{instruction}\"\"\"
+Navigate to the page most relevant to this request, not just the root URL.
+If the target content is below the fold, scroll it into view before taking the screenshot.
 """
 
-        await client.query(f"""Now take a screenshot of the running application.
-
-You already know the dev server URL from the previous step.
-
-Use the **{device}** browser tools (mcp__{device}__*) to take the screenshot.
+        await client.query(f"""Take a screenshot of the running application.
 {instruction_block}
 Steps:
-1. Read the project's routing configuration to identify the correct page for the user's request
-2. Use mcp__{device}__browser_navigate to open the appropriate page URL
-3. Use mcp__{device}__browser_wait_for to wait for the page to fully load
-4. If the target area is not visible in the viewport, use mcp__{device}__browser_evaluate to scroll it into view
-5. Use mcp__{device}__browser_take_screenshot to capture the viewport and save to {screenshot_output}
+1. Use mcp__{device}__browser_navigate to open the dev server URL from the previous step
+2. Use mcp__{device}__browser_wait_for with text that should appear on the loaded page (e.g., a heading, nav item, or button label)
+3. Use mcp__{device}__browser_snapshot to verify the page rendered correctly (not a blank page or error)
+4. If the page shows a loading spinner or error, wait 5 seconds and retry the snapshot
+5. If you need to scroll to the target area, use mcp__{device}__browser_evaluate with: `document.querySelector('<selector>').scrollIntoView({{behavior: 'smooth', block: 'center'}})`
+6. Use mcp__{device}__browser_take_screenshot to save to {screenshot_output}
 
-IMPORTANT:
-- Do NOT use fullPage. Capture only what the user actually sees in the viewport.
-- Navigate to the page most relevant to the user's request, not just the root URL.
-- If a specific element needs to be visible, use mcp__{device}__browser_evaluate to scrollIntoView first.
+IMPORTANT: Do NOT use fullPage option. Capture only the visible viewport.
 """)
         await _process_messages(client, "screenshot")
 

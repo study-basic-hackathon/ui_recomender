@@ -221,18 +221,28 @@ async def launch_and_screenshot(
     async with ClaudeSDKClient(options=options) as client:
         # Phase 1: install deps + start dev server
         emit_log("launching", "Launching: project")
-        await client.query("""You need to launch the web application.
+        await client.query("""Launch the dev server for this web application.
 
-Follow these steps:
-1. Investigate how to start the dev server (check package.json scripts, README, etc.)
-2. Install the project's dependencies if needed (e.g. `npm install` in the project directory)
-3. Start the dev server in the background using Bash (e.g. `npm run dev &` or whatever is appropriate)
-4. Wait for the server to become ready (poll with curl until it responds)
+## CRITICAL RULES
+- Do NOT run `npx playwright install` -- Playwright is pre-installed.
+- Do NOT install global npm packages.
+- Do NOT run docker-compose -- Docker is not available in this environment.
 
-IMPORTANT:
-- Playwright and Chromium are already installed globally. Do NOT run `npx playwright install` or any Playwright installation commands.
-- Only install the PROJECT's dependencies (e.g. `npm install` in the project directory).
-- Make sure the dev server is running and responding before finishing.
+## Steps
+
+1. Read package.json to understand the project structure and scripts.
+2. If .env.example exists, copy it to .env. Set API URLs to http://localhost:8000.
+3. Run `npm install` in the project root (or frontend directory if monorepo).
+4. If the project has a backend (check for /server, /backend, /api directories):
+   - For Node.js: `cd <backend-dir> && npm install && npm run dev &`
+   - For Python: `cd <backend-dir> && pip install -r requirements.txt && python -m uvicorn main:app --port 8000 &` (or similar)
+   - If backend needs PostgreSQL/Redis/Docker, skip it and proceed with frontend only.
+5. Start the frontend: `npm run dev &`
+6. Poll until ready: `for i in $(seq 1 30); do curl -s http://localhost:5173 > /dev/null && break; sleep 2; done`
+   (Adjust the port based on the framework: Vite=5173, Next.js=3000, CRA=3000, Angular=4200)
+7. Confirm with `curl -s http://localhost:<port> | head -5`
+
+After the server is running, state the URL (e.g., "Dev server is running at http://localhost:5173").
 """)
         await _process_messages(client, "launching")
 
@@ -243,32 +253,22 @@ IMPORTANT:
         instruction_block = ""
         if instruction:
             instruction_block = f"""
-## User's change request
-\"\"\"{instruction}\"\"\"
-
-Based on this request, you MUST determine which page and area to screenshot:
-1. Read the project's routing configuration (e.g. React Router, Next.js pages, Vue Router) to find the relevant page/route
-2. Navigate to the page that is most relevant to the user's request (NOT necessarily the root `/`)
-3. If the change target is below the fold (e.g. footer, bottom section), use mcp__{device}__browser_evaluate to scroll the element into view before taking the screenshot
+The user requested: \"\"\"{instruction}\"\"\"
+Navigate to the page most relevant to this request, not just the root URL.
+If the target content is below the fold, scroll it into view before taking the screenshot.
 """
 
-        await client.query(f"""Now take a screenshot of the running application.
-
-You already know the dev server URL from the previous step.
-
-Use the **{device}** browser tools (mcp__{device}__*) to take the screenshot.
+        await client.query(f"""Take a screenshot of the running application.
 {instruction_block}
 Steps:
-1. Read the project's routing configuration to identify the correct page for the user's request
-2. Use mcp__{device}__browser_navigate to open the appropriate page URL
-3. Use mcp__{device}__browser_wait_for to wait for the page to fully load
-4. If the target area is not visible in the viewport, use mcp__{device}__browser_evaluate to scroll it into view
-5. Use mcp__{device}__browser_take_screenshot to capture the viewport and save to {screenshot_output}
+1. Use mcp__{device}__browser_navigate to open the dev server URL from the previous step
+2. Use mcp__{device}__browser_wait_for with text that should appear on the loaded page (e.g., a heading, nav item, or button label)
+3. Use mcp__{device}__browser_snapshot to verify the page rendered correctly (not a blank page or error)
+4. If the page shows a loading spinner or error, wait 5 seconds and retry the snapshot
+5. If you need to scroll to the target area, use mcp__{device}__browser_evaluate with: `document.querySelector('<selector>').scrollIntoView({{behavior: 'smooth', block: 'center'}})`
+6. Use mcp__{device}__browser_take_screenshot to save to {screenshot_output}
 
-IMPORTANT:
-- Do NOT use fullPage. Capture only what the user actually sees in the viewport.
-- Navigate to the page most relevant to the user's request, not just the root URL.
-- If a specific element needs to be visible, use mcp__{device}__browser_evaluate to scrollIntoView first.
+IMPORTANT: Do NOT use fullPage option. Capture only the visible viewport.
 """)
         await _process_messages(client, "screenshot")
 
@@ -356,42 +356,64 @@ async def generate_proposals(
 
     Returns a dict with "device_type" and "proposals" keys.
     """
-    prompt = f"""You are a UI/UX design expert analyzing a web application repository.
-The user wants the following UI changes:
+    prompt = f"""You are a UI/UX design expert. Analyze this web application and generate {num_proposals} design proposals.
 
+## User's Request
 {instruction}
 
-## Your Task
+## Analysis Steps (use Read, Glob, Grep tools)
 
-1. Analyze the codebase using the available tools (Read, Glob, Grep) to understand the project structure, framework, and relevant files.
-2. Determine the project's target platform:
-   - Check package.json for mobile frameworks (react-native, @capacitor, @ionic, expo)
-   - Check HTML viewport meta tag and CSS media queries
-   - If the project targets mobile or is mobile-first → set device_type to "mobile"
-   - Otherwise → set device_type to "desktop"
-3. Generate exactly {num_proposals} different design proposals, each taking a meaningfully different approach.
+1. Read package.json to identify the framework (React, Vue, Angular, Next.js, etc.)
+2. Find the files most relevant to the user's request:
+   - Glob for component files matching keywords from the request
+   - Read the main layout/page components and their CSS/styles
+3. Determine device_type:
+   - "mobile" if package.json has react-native, @capacitor, @ionic, or expo
+   - "desktop" otherwise
 
-## Output Format
+Spend no more than 10 tool calls on analysis. Focus on files directly related to the user's request.
 
-IMPORTANT: After your analysis, you MUST output EXACTLY ONE valid JSON object as your FINAL message.
-Do not include any text before or after the JSON. Do not wrap it in markdown code blocks.
-Include "device_type" at the top level of the JSON.
-The JSON must follow this exact structure:
+## Proposal Requirements
+
+Each proposal MUST take a fundamentally different design approach. Differentiate by:
+- **Layout strategy** (e.g., grid vs. flexbox vs. cards vs. list)
+- **Visual hierarchy** (e.g., hero-focused vs. content-dense vs. minimalist)
+- **Interaction pattern** (e.g., inline editing vs. modal vs. accordion)
+
+Do NOT differentiate by only changing colors, fonts, or spacing.
+
+Each proposal must be implementable in under 40 tool calls. Do not propose changes that require:
+- New npm packages or dependencies
+- Backend/API changes
+- More than 5 files modified
+
+## Output
+
+Your final message must be ONLY a JSON object. No markdown, no explanation, no code blocks.
 
 {{
-  "device_type": "desktop|mobile",
+  "device_type": "desktop",
   "proposals": [
     {{
-      "title": "Short title (under 50 chars)",
-      "concept": "2-3 sentence description of the approach",
-      "plan": ["Step 1: ...", "Step 2: ...", "..."],
-      "files": [{{"path": "relative/path/to/file", "reason": "Why this file needs changes"}}],
-      "complexity": "low|medium|high"
+      "title": "Short title (max 50 chars)",
+      "concept": "2-3 sentences: what is different about this approach and why it improves UX",
+      "plan": [
+        "Read src/components/Header.tsx to understand current structure",
+        "Edit src/components/Header.tsx: change layout from horizontal nav to sidebar nav",
+        "Edit src/styles/header.css: add sidebar positioning and animation styles"
+      ],
+      "files": [{{"path": "src/components/Header.tsx", "reason": "Main component to restructure"}}],
+      "complexity": "low"
     }}
   ]
 }}
 
-Remember: The JSON output is the MOST IMPORTANT part. Even if your analysis is incomplete, you MUST output the JSON before finishing.
+Rules for the "plan" field:
+- Each step must name a specific file path
+- Each step must describe the specific change (not "update styles" but "add flexbox grid with 3 columns")
+- Steps must be in execution order
+
+Output ONLY the JSON. This is critical for automated parsing.
 """
 
     collected_text = []
@@ -403,7 +425,8 @@ Remember: The JSON output is the MOST IMPORTANT part. Even if your analysis is i
         options=ClaudeAgentOptions(
             allowed_tools=["Read", "Glob", "Grep"],
             cwd=repo_dir,
-            max_turns=30,
+            max_turns=20,
+            max_budget_usd=1.5,
             include_partial_messages=True,
         ),
     ):

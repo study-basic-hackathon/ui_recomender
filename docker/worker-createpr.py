@@ -57,35 +57,45 @@ async def push_and_create_pr(
     repo_dir: str, branch_name: str, base_branch: str, diff_summary: str
 ) -> str:
     """Use Claude Agent SDK to push the branch and create a PR."""
-    prompt = f"""You are creating a GitHub Pull Request for UI design changes.
+    prompt = f"""Create a GitHub Pull Request for UI changes.
 
-You are on branch "{branch_name}".
-The base branch is "{base_branch}".
+Branch: "{branch_name}" (target: "{base_branch}")
 
-Here is a summary of the changes that were applied (from the diff):
-
+## Changes Applied
 ```diff
 {diff_summary}
 ```
 
-Please do the following:
+## Steps
 
-1. Read the changed files to understand the full context of the changes.
-2. Push the current branch to the remote:
+1. Push the branch:
    `git push origin {branch_name}`
-3. Create a GitHub PR using the `gh` CLI:
-   `gh pr create --base {base_branch} --head {branch_name} --title "<concise title>" --body "<detailed description>"`
 
-   The PR title should be concise and descriptive (under 70 chars).
-   The PR description should include:
-   - A clear summary of what UI changes were made and why
-   - A list of the key files changed
-   - Any visual/behavioral changes the reviewer should look for
+2. Create the PR:
+   ```
+   gh pr create --base {base_branch} --head {branch_name} \\
+     --title "<type>: <concise description>" \\
+     --body "<body>"
+   ```
 
-4. After creating the PR, output the PR URL on a line by itself prefixed with "PR_URL:" like:
+   Title format: "feat: <what changed>" or "style: <what changed>" (under 70 chars)
+
+   Body format (use this exact markdown structure):
+   ```
+   ## What Changed
+   - Bullet point summary of each visual/behavioral change
+
+   ## Files Modified
+   - `path/to/file` - brief description of change
+
+   ## Review Notes
+   - What the reviewer should look for when checking this PR
+   ```
+
+3. Output the PR URL on its own line:
    PR_URL: https://github.com/...
 
-IMPORTANT: You MUST output the PR URL in that exact format so it can be extracted.
+IMPORTANT: The PR_URL: line is required for automated extraction. Output it exactly as shown.
 """
     collected_text: list[str] = []
 

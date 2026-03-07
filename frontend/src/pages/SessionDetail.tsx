@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from 'react'
+import { useState, useCallback, useEffect, useRef, Fragment } from 'react'
 import { useParams } from 'react-router-dom'
 import { useSessionPolling } from '../hooks/useSessionPolling'
 import { useLogStream } from '../hooks/useLogStream'
@@ -8,6 +8,331 @@ import { useLayoutContext } from '../hooks/useLayoutContext'
 import StatusBadge from '../components/StatusBadge'
 import ProposalCard from '../components/ProposalCard'
 import LogPanel from '../components/LogPanel'
+import type { LogStreamState } from '../hooks/useLogStream'
+
+/* ------------------------------------------------------------------ */
+/*  IterationBlock — renders a single iteration in the chat stack     */
+/* ------------------------------------------------------------------ */
+
+type IterationBlockProps = {
+  iteration: Iteration
+  isLatest: boolean
+  // latest-only interactive props
+  selectedIndex: number | null
+  onToggleProposal: (index: number) => void
+  onCreatePR: () => void
+  prLoading: boolean
+  prError: string | null
+  continueInstruction: string
+  onContinueInstructionChange: (v: string) => void
+  onContinue: () => void
+  continueLoading: boolean
+  continueError: string | null
+  // log stream
+  logStreamState: LogStreamState
+  isInProgress: boolean
+}
+
+function IterationBlock({
+  iteration,
+  isLatest,
+  selectedIndex,
+  onToggleProposal,
+  onCreatePR,
+  prLoading,
+  prError,
+  continueInstruction,
+  onContinueInstructionChange,
+  onContinue,
+  continueLoading,
+  continueError,
+  logStreamState,
+  isInProgress,
+}: IterationBlockProps) {
+  const isMobile = iteration.device_type === 'mobile'
+  const cardMinWidth = isMobile ? '240px' : '400px'
+  const completedProposals = iteration.proposals.filter(
+    (p) => p.status === 'completed' && p.after_screenshot_url,
+  )
+
+  // For past iterations, highlight the selected proposal; for latest, use interactive selection
+  const effectiveSelectedIndex = isLatest
+    ? selectedIndex
+    : iteration.selected_proposal_index
+
+  const selectedProposal: Proposal | null =
+    effectiveSelectedIndex !== null
+      ? (completedProposals.find((p) => p.proposal_index === effectiveSelectedIndex) ?? null)
+      : null
+
+  return (
+    <div>
+      {/* Instruction bubble */}
+      <div
+        style={{
+          padding: '12px 16px',
+          backgroundColor: '#1f2937',
+          border: '1px solid #374151',
+          borderRadius: '12px',
+          marginBottom: '16px',
+          fontSize: '16px',
+          color: 'rgba(255,255,255,0.87)',
+        }}
+      >
+        <span style={{ color: '#9ca3af', fontSize: '13px' }}>
+          Iteration #{iteration.iteration_index + 1}
+        </span>
+        <div style={{ marginTop: '4px' }}>{iteration.instruction}</div>
+      </div>
+
+      {/* Error message */}
+      {iteration.error_message && (
+        <div
+          style={{
+            padding: '12px',
+            backgroundColor: '#fef2f2',
+            border: '1px solid #fecaca',
+            borderRadius: '6px',
+            color: '#991b1b',
+            fontSize: '16px',
+            marginBottom: '16px',
+          }}
+        >
+          {iteration.error_message}
+        </div>
+      )}
+
+      {/* Log panel — live when latest & in-progress, collapsed otherwise */}
+      {isLatest && (isInProgress || logStreamState.jobs.size > 0) && (
+        <LogPanel logState={logStreamState} defaultCollapsed={!isInProgress} />
+      )}
+
+      {/* Proposals grid */}
+      {iteration.status === 'completed' && completedProposals.length > 0 && (
+        <div>
+          <h2 style={{ fontSize: '18px', marginBottom: '12px' }}>
+            {isLatest
+              ? `Select a design (${completedProposals.length} proposals)`
+              : `Proposals (${completedProposals.length})`}
+          </h2>
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: `repeat(auto-fill, minmax(${cardMinWidth}, 1fr))`,
+              gap: '16px',
+            }}
+          >
+            {iteration.before_screenshot_url && (
+              <div
+                style={{
+                  border: '1px solid #e5e7eb',
+                  borderRadius: '8px',
+                  overflow: 'hidden',
+                  backgroundColor: '#fff',
+                }}
+              >
+                <img
+                  src={iteration.before_screenshot_url}
+                  alt="Before"
+                  style={{ width: '100%', display: 'block' }}
+                />
+                <div style={{ padding: '10px 12px' }}>
+                  <h3 style={{ margin: 0, fontSize: '14px', fontWeight: 600, color: '#111' }}>
+                    Before
+                  </h3>
+                </div>
+              </div>
+            )}
+            {completedProposals.map((proposal) => (
+              <ProposalCard
+                key={proposal.id}
+                proposal={proposal}
+                selected={effectiveSelectedIndex === proposal.proposal_index}
+                onToggle={onToggleProposal}
+                readOnly={!isLatest}
+              />
+            ))}
+          </div>
+
+          {/* Create PR button & Continue input — latest only */}
+          {isLatest && (
+            <>
+              {/* Create PR button */}
+              <div style={{ marginTop: '16px' }}>
+                {(() => {
+                  const sp = selectedProposal
+                  if (sp?.pr_url) {
+                    return (
+                      <a
+                        href={sp.pr_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={{
+                          display: 'inline-block',
+                          padding: '10px 24px',
+                          backgroundColor: '#059669',
+                          color: '#fff',
+                          borderRadius: '6px',
+                          textDecoration: 'none',
+                          fontSize: '16px',
+                          fontWeight: 600,
+                        }}
+                      >
+                        View PR
+                      </a>
+                    )
+                  }
+                  if (sp?.pr_status === 'creating') {
+                    return (
+                      <div
+                        style={{
+                          display: 'inline-block',
+                          padding: '10px 24px',
+                          backgroundColor: '#f0f9ff',
+                          borderRadius: '6px',
+                          fontSize: '16px',
+                          color: '#1e40af',
+                        }}
+                      >
+                        Creating PR...
+                      </div>
+                    )
+                  }
+                  const canCreate = !!sp && !sp.pr_status && !sp.pr_url
+                  const isFailed = sp?.pr_status === 'failed'
+                  return (
+                    <>
+                      {isFailed && (
+                        <p style={{ color: '#dc2626', fontSize: '13px', marginBottom: '8px' }}>
+                          PR creation failed
+                        </p>
+                      )}
+                      <button
+                        onClick={onCreatePR}
+                        disabled={(!canCreate && !isFailed) || prLoading}
+                        style={{
+                          padding: '10px 24px',
+                          backgroundColor:
+                            (canCreate || isFailed) && !prLoading ? '#3b82f6' : '#4b5563',
+                          color: '#fff',
+                          border: 'none',
+                          borderRadius: '6px',
+                          cursor:
+                            (canCreate || isFailed) && !prLoading ? 'pointer' : 'not-allowed',
+                          fontSize: '16px',
+                          fontWeight: 600,
+                          opacity: canCreate || isFailed ? 1 : 0.5,
+                        }}
+                      >
+                        {prLoading
+                          ? 'Creating PR...'
+                          : isFailed
+                            ? 'Retry Create PR'
+                            : 'Create PR'}
+                      </button>
+                    </>
+                  )
+                })()}
+
+                {prError && (
+                  <p style={{ color: '#dc2626', fontSize: '13px', marginTop: '8px' }}>
+                    {prError}
+                  </p>
+                )}
+              </div>
+
+              {/* Continue Refining — chat-style input */}
+              <div
+                style={{
+                  marginTop: '24px',
+                  border: '1px solid #4b5563',
+                  borderRadius: '12px',
+                  backgroundColor: '#1a1a1a',
+                  padding: '12px 16px',
+                }}
+              >
+                <textarea
+                  value={continueInstruction}
+                  onChange={(e) => onContinueInstructionChange(e.target.value)}
+                  placeholder="Select a base design, then describe additional changes..."
+                  rows={2}
+                  style={{
+                    width: '100%',
+                    padding: 0,
+                    border: 'none',
+                    outline: 'none',
+                    fontSize: '15px',
+                    resize: 'none',
+                    boxSizing: 'border-box',
+                    backgroundColor: 'transparent',
+                    color: 'rgba(255,255,255,0.87)',
+                    lineHeight: '1.5',
+                  }}
+                />
+                <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '8px' }}>
+                  <button
+                    onClick={onContinue}
+                    disabled={continueLoading || !continueInstruction.trim() || !selectedProposal}
+                    style={{
+                      width: '36px',
+                      height: '36px',
+                      borderRadius: '50%',
+                      border: 'none',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      cursor:
+                        continueLoading || !continueInstruction.trim() || !selectedProposal
+                          ? 'not-allowed'
+                          : 'pointer',
+                      backgroundColor:
+                        continueLoading || !continueInstruction.trim() || !selectedProposal
+                          ? '#4b5563'
+                          : '#fff',
+                      color:
+                        continueLoading || !continueInstruction.trim() || !selectedProposal
+                          ? '#9ca3af'
+                          : '#111',
+                      transition: 'background-color 0.15s',
+                    }}
+                    aria-label="Send"
+                  >
+                    {continueLoading ? (
+                      <span style={{ fontSize: '14px' }}>...</span>
+                    ) : (
+                      <svg
+                        width="18"
+                        height="18"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2.5"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <line x1="12" y1="19" x2="12" y2="5" />
+                        <polyline points="5 12 12 5 19 12" />
+                      </svg>
+                    )}
+                  </button>
+                </div>
+                {continueError && (
+                  <p style={{ color: '#dc2626', fontSize: '13px', marginTop: '8px' }}>
+                    {continueError}
+                  </p>
+                )}
+              </div>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/* ------------------------------------------------------------------ */
+/*  SessionDetail — main component                                     */
+/* ------------------------------------------------------------------ */
 
 export default function SessionDetail() {
   const { sessionId } = useParams<{ sessionId: string }>()
@@ -32,12 +357,21 @@ export default function SessionDetail() {
   const [continueInstruction, setContinueInstruction] = useState('')
   const [continueLoading, setContinueLoading] = useState(false)
   const [continueError, setContinueError] = useState<string | null>(null)
+  const bottomRef = useRef<HTMLDivElement>(null)
 
   // Reset selection when session changes
   useEffect(() => {
     setSelectedIndex(null)
     setContinueInstruction('')
   }, [sessionId])
+
+  // Auto-scroll when new iterations are added
+  const iterationCount = session?.iterations.length ?? 0
+  useEffect(() => {
+    if (iterationCount > 0) {
+      bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+    }
+  }, [iterationCount])
 
   const latestIteration: Iteration | null =
     session && session.iterations.length > 0
@@ -138,16 +472,6 @@ export default function SessionDetail() {
 
   const iterationStatus = latestIteration?.status ?? 'pending'
   const isInProgress = ['pending', 'analyzing', 'implementing'].includes(iterationStatus)
-  const isMobile = latestIteration?.device_type === 'mobile'
-  const cardMinWidth = isMobile ? '240px' : '400px'
-  const completedProposals =
-    latestIteration?.proposals.filter((p) => p.status === 'completed' && p.after_screenshot_url) ??
-    []
-
-  const selectedProposal: Proposal | null =
-    selectedIndex !== null
-      ? (completedProposals.find((p) => p.proposal_index === selectedIndex) ?? null)
-      : null
 
   return (
     <div style={{ maxWidth: '1000px', margin: '0 auto', padding: '24px' }}>
@@ -163,283 +487,41 @@ export default function SessionDetail() {
         </div>
       </div>
 
-      {/* Iteration timeline */}
-      {session.iterations.length > 1 && (
-        <div style={{ marginBottom: '24px' }}>
-          <h2 style={{ fontSize: '16px', marginBottom: '8px', color: '#9ca3af' }}>
-            Iterations ({session.iterations.length})
-          </h2>
-          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-            {session.iterations.map((iter, idx) => (
-              <div
-                key={iter.id}
+      {/* All iterations stacked */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+        {session.iterations.map((iter, idx) => (
+          <Fragment key={iter.id}>
+            {idx > 0 && (
+              <hr
                 style={{
-                  padding: '6px 12px',
-                  borderRadius: '6px',
-                  fontSize: '13px',
-                  backgroundColor: idx === session.iterations.length - 1 ? '#374151' : '#1f2937',
-                  border:
-                    idx === session.iterations.length - 1
-                      ? '1px solid #60a5fa'
-                      : '1px solid #374151',
-                  color: idx === session.iterations.length - 1 ? '#93c5fd' : '#9ca3af',
+                  border: 'none',
+                  borderTop: '1px solid #374151',
+                  margin: 0,
                 }}
-              >
-                #{idx + 1}: {iter.instruction.substring(0, 40)}
-                {iter.instruction.length > 40 ? '...' : ''}
-                {iter.selected_proposal_index !== null && (
-                  <span style={{ marginLeft: '6px', color: '#6b7280' }}>
-                    (selected #{iter.selected_proposal_index + 1})
-                  </span>
-                )}
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
+              />
+            )}
+            <IterationBlock
+              iteration={iter}
+              isLatest={idx === session.iterations.length - 1}
+              selectedIndex={selectedIndex}
+              onToggleProposal={toggleProposal}
+              onCreatePR={handleCreatePR}
+              prLoading={prLoading}
+              prError={prError}
+              continueInstruction={continueInstruction}
+              onContinueInstructionChange={setContinueInstruction}
+              onContinue={handleContinue}
+              continueLoading={continueLoading}
+              continueError={continueError}
+              logStreamState={logStreamState}
+              isInProgress={isInProgress}
+            />
+          </Fragment>
+        ))}
+      </div>
 
-      {/* Current instruction */}
-      {latestIteration && (
-        <div
-          style={{
-            padding: '12px 16px',
-            backgroundColor: '#1f2937',
-            border: '1px solid #374151',
-            borderRadius: '6px',
-            marginBottom: '16px',
-            fontSize: '16px',
-            color: 'rgba(255,255,255,0.87)',
-          }}
-        >
-          <span style={{ color: '#9ca3af', fontSize: '13px' }}>
-            Instruction (iteration #{latestIteration.iteration_index + 1}):
-          </span>
-          <div style={{ marginTop: '4px' }}>{latestIteration.instruction}</div>
-        </div>
-      )}
-
-      {/* Error message */}
-      {latestIteration?.error_message && (
-        <div
-          style={{
-            padding: '12px',
-            backgroundColor: '#fef2f2',
-            border: '1px solid #fecaca',
-            borderRadius: '6px',
-            color: '#991b1b',
-            fontSize: '16px',
-            marginBottom: '16px',
-          }}
-        >
-          {latestIteration.error_message}
-        </div>
-      )}
-
-      {/* Progress indicator with log streaming */}
-      {(isInProgress || logStreamState.jobs.size > 0) && (
-        <LogPanel logState={logStreamState} defaultCollapsed={!isInProgress} />
-      )}
-
-      {/* Completed: show proposals */}
-      {iterationStatus === 'completed' && latestIteration && (
-        <>
-          {completedProposals.length > 0 && (
-            <div>
-              <h2 style={{ fontSize: '18px', marginBottom: '12px' }}>
-                Select a design ({completedProposals.length} proposals)
-              </h2>
-              <div
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: `repeat(auto-fill, minmax(${cardMinWidth}, 1fr))`,
-                  gap: '16px',
-                }}
-              >
-                {latestIteration.before_screenshot_url && (
-                  <div
-                    style={{
-                      border: '1px solid #e5e7eb',
-                      borderRadius: '8px',
-                      overflow: 'hidden',
-                      backgroundColor: '#fff',
-                    }}
-                  >
-                    <img
-                      src={latestIteration.before_screenshot_url}
-                      alt="Before"
-                      style={{ width: '100%', display: 'block' }}
-                    />
-                    <div style={{ padding: '10px 12px' }}>
-                      <h3 style={{ margin: 0, fontSize: '14px', fontWeight: 600, color: '#111' }}>
-                        Before
-                      </h3>
-                    </div>
-                  </div>
-                )}
-                {completedProposals.map((proposal) => (
-                  <ProposalCard
-                    key={proposal.id}
-                    proposal={proposal}
-                    selected={selectedIndex === proposal.proposal_index}
-                    onToggle={toggleProposal}
-                  />
-                ))}
-              </div>
-
-              {/* Create PR button — always visible, disabled until a proposal is selected */}
-              <div style={{ marginTop: '16px' }}>
-                {(() => {
-                  const sp = selectedProposal
-                  if (sp?.pr_url) {
-                    return (
-                      <a
-                        href={sp.pr_url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        style={{
-                          display: 'inline-block',
-                          padding: '10px 24px',
-                          backgroundColor: '#059669',
-                          color: '#fff',
-                          borderRadius: '6px',
-                          textDecoration: 'none',
-                          fontSize: '16px',
-                          fontWeight: 600,
-                        }}
-                      >
-                        View PR
-                      </a>
-                    )
-                  }
-                  if (sp?.pr_status === 'creating') {
-                    return (
-                      <div
-                        style={{
-                          display: 'inline-block',
-                          padding: '10px 24px',
-                          backgroundColor: '#f0f9ff',
-                          borderRadius: '6px',
-                          fontSize: '16px',
-                          color: '#1e40af',
-                        }}
-                      >
-                        Creating PR...
-                      </div>
-                    )
-                  }
-                  const canCreate = !!sp && !sp.pr_status && !sp.pr_url
-                  const isFailed = sp?.pr_status === 'failed'
-                  return (
-                    <>
-                      {isFailed && (
-                        <p style={{ color: '#dc2626', fontSize: '13px', marginBottom: '8px' }}>
-                          PR creation failed
-                        </p>
-                      )}
-                      <button
-                        onClick={handleCreatePR}
-                        disabled={!canCreate && !isFailed || prLoading}
-                        style={{
-                          padding: '10px 24px',
-                          backgroundColor: (canCreate || isFailed) && !prLoading ? '#3b82f6' : '#4b5563',
-                          color: '#fff',
-                          border: 'none',
-                          borderRadius: '6px',
-                          cursor: (canCreate || isFailed) && !prLoading ? 'pointer' : 'not-allowed',
-                          fontSize: '16px',
-                          fontWeight: 600,
-                          opacity: (canCreate || isFailed) ? 1 : 0.5,
-                        }}
-                      >
-                        {prLoading ? 'Creating PR...' : isFailed ? 'Retry Create PR' : 'Create PR'}
-                      </button>
-                    </>
-                  )
-                })()}
-
-                {prError && (
-                  <p style={{ color: '#dc2626', fontSize: '13px', marginTop: '8px' }}>
-                    {prError}
-                  </p>
-                )}
-              </div>
-
-              {/* Continue Refining — chat-style input */}
-              <div
-                style={{
-                  marginTop: '24px',
-                  border: '1px solid #4b5563',
-                  borderRadius: '12px',
-                  backgroundColor: '#1a1a1a',
-                  padding: '12px 16px',
-                }}
-              >
-                <textarea
-                  value={continueInstruction}
-                  onChange={(e) => setContinueInstruction(e.target.value)}
-                  placeholder="Select a base design, then describe additional changes..."
-                  rows={2}
-                  style={{
-                    width: '100%',
-                    padding: 0,
-                    border: 'none',
-                    outline: 'none',
-                    fontSize: '15px',
-                    resize: 'none',
-                    boxSizing: 'border-box',
-                    backgroundColor: 'transparent',
-                    color: 'rgba(255,255,255,0.87)',
-                    lineHeight: '1.5',
-                  }}
-                />
-                <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '8px' }}>
-                  <button
-                    onClick={handleContinue}
-                    disabled={continueLoading || !continueInstruction.trim() || !selectedProposal}
-                    style={{
-                      width: '36px',
-                      height: '36px',
-                      borderRadius: '50%',
-                      border: 'none',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      cursor:
-                        continueLoading || !continueInstruction.trim() || !selectedProposal
-                          ? 'not-allowed'
-                          : 'pointer',
-                      backgroundColor:
-                        continueLoading || !continueInstruction.trim() || !selectedProposal
-                          ? '#4b5563'
-                          : '#fff',
-                      color:
-                        continueLoading || !continueInstruction.trim() || !selectedProposal
-                          ? '#9ca3af'
-                          : '#111',
-                      transition: 'background-color 0.15s',
-                    }}
-                    aria-label="Send"
-                  >
-                    {continueLoading ? (
-                      <span style={{ fontSize: '14px' }}>...</span>
-                    ) : (
-                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                        <line x1="12" y1="19" x2="12" y2="5" />
-                        <polyline points="5 12 12 5 19 12" />
-                      </svg>
-                    )}
-                  </button>
-                </div>
-                {continueError && (
-                  <p style={{ color: '#dc2626', fontSize: '13px', marginTop: '8px' }}>
-                    {continueError}
-                  </p>
-                )}
-              </div>
-            </div>
-          )}
-        </>
-      )}
+      {/* Auto-scroll anchor */}
+      <div ref={bottomRef} />
     </div>
   )
 }

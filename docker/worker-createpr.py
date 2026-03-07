@@ -59,7 +59,7 @@ async def push_and_create_pr(
     """Use Claude Agent SDK to push the branch and create a PR."""
     prompt = f"""You are creating a GitHub Pull Request for UI design changes.
 
-The repository is at {repo_dir}. You are on branch "{branch_name}".
+You are on branch "{branch_name}".
 The base branch is "{base_branch}".
 
 Here is a summary of the changes that were applied (from the diff):

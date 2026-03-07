@@ -62,11 +62,13 @@ def _emit_tool_detail(phase: str, tool_name: str, raw_input: str) -> None:
         return
 
     if tool_name == "Read":
-        emit_log(phase, f"Reading: {params.get('file_path', '?')}")
+        path = params.get("file_path", "?").replace("/workspace/repo/", "")
+        emit_log(phase, f"Reading: {path}")
     elif tool_name in ("Write", "Edit"):
-        emit_log(phase, f"Editing: {params.get('file_path', '?')}")
+        path = params.get("file_path", "?").replace("/workspace/repo/", "")
+        emit_log(phase, f"Editing: {path}")
     elif tool_name == "Bash":
-        cmd = params.get("command", "?")
+        cmd = params.get("command", "?").replace("/workspace/repo/", "").replace("/workspace/repo", ".")
         emit_log(phase, f"Running: {cmd[:100]}")
 
 
@@ -125,7 +127,7 @@ def s3_upload_text(s3, bucket, key, text, content_type="text/plain"):
 
 async def implement_changes(repo_dir: str, proposal_plan: str) -> None:
     """Use Claude Agent SDK to implement the design proposal."""
-    prompt = f"""You are implementing UI changes to a web application located at {repo_dir}.
+    prompt = f"""You are implementing UI changes to a web application.
 
 Here is the specific design proposal to implement:
 
@@ -240,7 +242,7 @@ async def fix_with_claude(repo_dir: str, error_message: str, device_type: str = 
 
     device = "playwright_mobile" if device_type == "mobile" else "playwright"
     async with ClaudeSDKClient(options=options) as client:
-        await client.query(f"""The dev server failed to start in the project at {repo_dir}.
+        await client.query(f"""The dev server failed to start.
 
 Here is the error output:
 
@@ -283,7 +285,7 @@ async def launch_and_screenshot(repo_dir: str, screenshot_output: str, device_ty
     async with ClaudeSDKClient(options=options) as client:
         # Phase 1: install deps + start dev server
         emit_log("launching", "Launching project")
-        await client.query(f"""You need to launch the web application at {repo_dir}.
+        await client.query("""You need to launch the web application.
 
 Follow these steps:
 1. Investigate how to start the dev server (check package.json scripts, README, etc.)

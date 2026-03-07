@@ -62,11 +62,13 @@ def _emit_tool_detail(phase: str, tool_name: str, raw_input: str) -> None:
         return
 
     if tool_name == "Read":
-        emit_log(phase, f"Reading: {params.get('file_path', '?')}")
+        path = params.get("file_path", "?").replace("/workspace/repo/", "")
+        emit_log(phase, f"Reading: {path}")
     elif tool_name in ("Write", "Edit"):
-        emit_log(phase, f"Editing: {params.get('file_path', '?')}")
+        path = params.get("file_path", "?").replace("/workspace/repo/", "")
+        emit_log(phase, f"Editing: {path}")
     elif tool_name == "Bash":
-        cmd = params.get("command", "?")
+        cmd = params.get("command", "?").replace("/workspace/repo/", "").replace("/workspace/repo", ".")
         emit_log(phase, f"Running: {cmd[:100]}")
 
 
@@ -177,7 +179,7 @@ async def launch_and_screenshot(repo_dir: str, screenshot_output: str, device_ty
     async with ClaudeSDKClient(options=options) as client:
         # Phase 1: install deps + start dev server
         emit_log("launching", "Launching project")
-        await client.query(f"""You need to launch the web application at {repo_dir}.
+        await client.query("""You need to launch the web application.
 
 Follow these steps:
 1. Investigate how to start the dev server (check package.json scripts, README, etc.)

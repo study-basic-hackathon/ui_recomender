@@ -103,15 +103,8 @@ class LogStreamClient:
                         }
                         await queue.put(event)
                     else:
-                        # Non-structured log line - emit as raw
-                        await queue.put(
-                            {
-                                "job_type": job_info.job_type,
-                                "proposal_index": job_info.proposal_index,
-                                "phase": "running",
-                                "message": line,
-                            }
-                        )
+                        # Non-structured log lines (subprocess stdout, etc.) are internal — skip
+                        pass
             except asyncio.CancelledError:
                 return
             except Exception as e:

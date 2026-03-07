@@ -177,7 +177,7 @@ Here is the specific design proposal to implement:
                     text = block.text.strip()
                     if text.startswith("Browser") or text.startswith("Searching"):
                         continue
-                    emit_log("implementing", text[:200], detail=block.text)
+                    emit_log("implementing", f"Thinking: {text[:200]}", detail=block.text)
                 elif isinstance(block, ToolUseBlock):
                     _emit_tool_detail("implementing", block.name, json.dumps(block.input))
 
@@ -213,7 +213,7 @@ async def _process_messages(client: ClaudeSDKClient, phase: str) -> None:
                     text = block.text.strip()
                     if text.startswith("Browser") or text.startswith("Searching"):
                         continue
-                    emit_log(phase, text[:200], detail=block.text)
+                    emit_log(phase, f"Thinking: {text[:200]}", detail=block.text)
                 elif isinstance(block, ToolUseBlock):
                     _emit_tool_detail(phase, block.name, json.dumps(block.input))
 
@@ -284,7 +284,7 @@ async def launch_and_screenshot(repo_dir: str, screenshot_output: str, device_ty
 
     async with ClaudeSDKClient(options=options) as client:
         # Phase 1: install deps + start dev server
-        emit_log("launching", "Launching project")
+        emit_log("launching", "Launching: project")
         await client.query("""You need to launch the web application.
 
 Follow these steps:
@@ -301,7 +301,7 @@ IMPORTANT:
         await _process_messages(client, "launching")
 
         # Phase 2: take screenshot (same session, so dev server URL is remembered)
-        emit_log("screenshot", "Taking after screenshot")
+        emit_log("screenshot", "Taking: after screenshot")
         device = "playwright_mobile" if device_type == "mobile" else "playwright"
         await client.query(f"""Now take a screenshot of the running application.
 
@@ -383,7 +383,7 @@ async def main() -> None:
         sys.exit(1)
 
     # Step 2: Clone repository
-    emit_log("cloning", "Cloning repository")
+    emit_log("cloning", "Cloning: repository")
     subprocess.run(
         ["git", "clone", "--depth", "1", "--branch", branch, repo_url, repo_dir],
         check=True,
@@ -436,7 +436,7 @@ async def main() -> None:
     emit_log("implementing", f"Created local branch: {branch_name}")
 
     screenshot_path = f"{tmp_dir}/after.png"
-    emit_log("implementing", "Implementing design proposal")
+    emit_log("implementing", "Implementing: design proposal")
     try:
         await implement_changes(repo_dir, proposal_plan)
     except Exception as e:
@@ -471,7 +471,6 @@ async def main() -> None:
         emit_log("implementing", "WARNING: Could not launch dev server, screenshot may be missing")
 
     # Step 4: Generate cumulative patch (squash everything since base_branch)
-    emit_log("uploading", "Generating cumulative patch")
     # Parse proposal plan to get title for commit message
     try:
         plan_data = json.loads(proposal_plan)
@@ -503,8 +502,6 @@ async def main() -> None:
         f.write(patch_result.stdout)
 
     # Step 5: Upload results to S3
-    emit_log("uploading", "Uploading results to S3")
-
     # Upload after screenshot
     if Path(screenshot_path).exists():
         s3_upload_file(

@@ -156,7 +156,7 @@ async def _process_messages(client: ClaudeSDKClient, phase: str) -> None:
                     text = block.text.strip()
                     if text.startswith("Browser") or text.startswith("Searching"):
                         continue
-                    emit_log(phase, text[:200], detail=block.text)
+                    emit_log(phase, f"Thinking: {text[:200]}", detail=block.text)
                 elif isinstance(block, ToolUseBlock):
                     _emit_tool_detail(phase, block.name, json.dumps(block.input))
 
@@ -178,7 +178,7 @@ async def launch_and_screenshot(repo_dir: str, screenshot_output: str, device_ty
 
     async with ClaudeSDKClient(options=options) as client:
         # Phase 1: install deps + start dev server
-        emit_log("launching", "Launching project")
+        emit_log("launching", "Launching: project")
         await client.query("""You need to launch the web application.
 
 Follow these steps:
@@ -195,7 +195,7 @@ IMPORTANT:
         await _process_messages(client, "launching")
 
         # Phase 2: take screenshot (same session, so dev server URL is remembered)
-        emit_log("screenshot", "Taking before screenshot")
+        emit_log("screenshot", "Taking: before screenshot")
         device = "playwright_mobile" if device_type == "mobile" else "playwright"
         await client.query(f"""Now take a screenshot of the running application.
 
@@ -375,7 +375,7 @@ Remember: The JSON output is the MOST IMPORTANT part. Even if your analysis is i
                     text = block.text.strip()
                     if text.startswith("Browser") or text.startswith("Searching"):
                         continue
-                    emit_log("analyzing", text[:200], detail=block.text)
+                    emit_log("analyzing", f"Thinking: {text[:200]}", detail=block.text)
                     collected_text.append(block.text)
                 elif isinstance(block, ToolUseBlock):
                     _emit_tool_detail("analyzing", block.name, json.dumps(block.input))
@@ -402,7 +402,7 @@ async def main() -> None:
     s3_prefix = f"sessions/{session_id}/iterations/{iteration_index}"
 
     # Step 1: Clone repository
-    emit_log("cloning", "Cloning repository")
+    emit_log("cloning", "Cloning: repository")
     subprocess.run(
         ["git", "clone", "--depth", "1", "--branch", branch, repo_url, repo_dir],
         check=True,
@@ -450,7 +450,7 @@ async def main() -> None:
             )
 
     # Step 2: Code analysis + device detection + proposal generation (no browser needed)
-    emit_log("analyzing", "Generating design proposals")
+    emit_log("analyzing", "Thinking: Generating design proposals")
     try:
         result = await generate_proposals(repo_dir, instruction, num_proposals)
     except Exception as e:
@@ -463,15 +463,13 @@ async def main() -> None:
         device_type = device_type.lower()
     if device_type not in ("desktop", "mobile"):
         device_type = "desktop"
-    emit_log("analyzing", f"Generated {len(proposals)} proposals (device: {device_type})")
+    emit_log("analyzing", f"Thinking: Generated {len(proposals)} proposals (device: {device_type})")
 
     # Step 3: Launch dev server + take before screenshot (with determined device_type)
     before_path = f"{tmp_dir}/before.png"
     await launch_and_screenshot(repo_dir, before_path, device_type=device_type)
 
     # Step 4: Upload results to S3
-    emit_log("uploading", "Uploading results to S3")
-
     # Upload before screenshot
     if Path(before_path).exists():
         s3_upload_file(
